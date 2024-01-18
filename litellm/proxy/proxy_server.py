@@ -72,6 +72,7 @@ from litellm.proxy.utils import (
     ProxyLogging,
     _cache_user_row,
     send_email,
+    get_logging_payload,
 )
 from litellm.proxy.secret_managers.google_kms import load_google_kms
 import pydantic
@@ -331,17 +332,20 @@ async def user_api_key_auth(
                     f"LLM Model List pre access group check: {llm_model_list}"
                 )
                 access_groups = []
-                for m in llm_model_list:
-                    for group in m.get("model_info", {}).get("access_groups", []):
-                        access_groups.append((m["model_name"], group))
+                if llm_model_list is not None:
+                    for m in llm_model_list:
+                        for group in m.get("model_info", {}).get("access_groups", []):
+                            access_groups.append((m["model_name"], group))
 
                 allowed_models = valid_token.models
+                access_group_idx = set()
                 if (
                     len(access_groups) > 0
                 ):  # check if token contains any model access groups
-                    for m in valid_token.models:
+                    for idx, m in enumerate(valid_token.models):
                         for model_name, group in access_groups:
                             if m == group:
+                                access_group_idx.add(idx)
                                 allowed_models.append(model_name)
                 verbose_proxy_logger.debug(
                     f"model: {model}; allowed_models: {allowed_models}"
@@ -350,6 +354,12 @@ async def user_api_key_auth(
                     raise ValueError(
                         f"API Key not allowed to access model. This token can only access models={valid_token.models}. Tried to access {model}"
                     )
+                for val in access_group_idx:
+                    allowed_models.pop(val)
+                valid_token.models = allowed_models
+                verbose_proxy_logger.debug(
+                    f"filtered allowed_models: {allowed_models}; valid_token.models: {valid_token.models}"
+                )
 
             # Check 2. If user_id for this token is in budget
             if valid_token.user_id is not None:
@@ -509,6 +519,7 @@ async def track_cost_callback(
     global prisma_client, custom_db_client
     try:
         # check if it has collected an entire stream response
+        verbose_proxy_logger.debug(f"Proxy: In track_cost_callback for {kwargs}")
         verbose_proxy_logger.debug(
             f"kwargs stream: {kwargs.get('stream', None)} + complete streaming response: {kwargs.get('complete_streaming_response', None)}"
         )
@@ -529,7 +540,13 @@ async def track_cost_callback(
                 prisma_client is not None or custom_db_client is not None
             ):
                 await update_database(
-                    token=user_api_key, response_cost=response_cost, user_id=user_id
+                    token=user_api_key,
+                    response_cost=response_cost,
+                    user_id=user_id,
+                    kwargs=kwargs,
+                    completion_response=completion_response,
+                    start_time=start_time,
+                    end_time=end_time,
                 )
         elif kwargs["stream"] == False:  # for non streaming responses
             response_cost = litellm.completion_cost(
@@ -545,13 +562,27 @@ async def track_cost_callback(
                 prisma_client is not None or custom_db_client is not None
             ):
                 await update_database(
-                    token=user_api_key, response_cost=response_cost, user_id=user_id
+                    token=user_api_key,
+                    response_cost=response_cost,
+                    user_id=user_id,
+                    kwargs=kwargs,
+                    completion_response=completion_response,
+                    start_time=start_time,
+                    end_time=end_time,
                 )
     except Exception as e:
         verbose_proxy_logger.debug(f"error in tracking cost callback - {str(e)}")
 
 
-async def update_database(token, response_cost, user_id=None):
+async def update_database(
+    token,
+    response_cost,
+    user_id=None,
+    kwargs=None,
+    completion_response=None,
+    start_time=None,
+    end_time=None,
+):
     try:
         verbose_proxy_logger.debug(
             f"Enters prisma db call, token: {token}; user_id: {user_id}"
@@ -621,9 +652,28 @@ async def update_database(token, response_cost, user_id=None):
                     key=token, value={"spend": new_spend}, table_name="key"
                 )
 
+        async def _insert_spend_log_to_db():
+            # Helper to generate payload to log
+            verbose_proxy_logger.debug("inserting spend log to db")
+            payload = get_logging_payload(
+                kwargs=kwargs,
+                response_obj=completion_response,
+                start_time=start_time,
+                end_time=end_time,
+            )
+
+            payload["spend"] = response_cost
+
+            if prisma_client is not None:
+                await prisma_client.insert_data(data=payload, table_name="spend")
+
+            elif custom_db_client is not None:
+                await custom_db_client.insert_data(payload, table_name="spend")
+
         tasks = []
         tasks.append(_update_user_db())
         tasks.append(_update_key_db())
+        tasks.append(_insert_spend_log_to_db())
         await asyncio.gather(*tasks)
     except Exception as e:
         verbose_proxy_logger.debug(
@@ -1093,7 +1143,7 @@ async def generate_key_helper_fn(
         }
         if prisma_client is not None:
             ## CREATE USER (If necessary)
-            verbose_proxy_logger.debug(f"CustomDBClient: Creating User={user_data}")
+            verbose_proxy_logger.debug(f"prisma_client: Creating User={user_data}")
             user_row = await prisma_client.insert_data(
                 data=user_data, table_name="user"
             )
@@ -1102,7 +1152,7 @@ async def generate_key_helper_fn(
             if len(user_row.models) > 0 and len(key_data["models"]) == 0:  # type: ignore
                 key_data["models"] = user_row.models
             ## CREATE KEY
-            verbose_proxy_logger.debug(f"CustomDBClient: Creating Key={key_data}")
+            verbose_proxy_logger.debug(f"prisma_client: Creating Key={key_data}")
             await prisma_client.insert_data(data=key_data, table_name="key")
         elif custom_db_client is not None:
             ## CREATE USER (If necessary)
@@ -1396,15 +1446,23 @@ async def startup_event():
 @router.get(
     "/models", dependencies=[Depends(user_api_key_auth)], tags=["model management"]
 )  # if project requires model list
-def model_list():
+def model_list(
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
     global llm_model_list, general_settings
     all_models = []
-    if general_settings.get("infer_model_from_keys", False):
-        all_models = litellm.utils.get_valid_models()
-    if llm_model_list:
-        all_models = list(set(all_models + [m["model_name"] for m in llm_model_list]))
-    if user_model is not None:
-        all_models += [user_model]
+    if len(user_api_key_dict.models) > 0:
+        all_models = user_api_key_dict.models
+    else:
+        ## if no specific model access
+        if general_settings.get("infer_model_from_keys", False):
+            all_models = litellm.utils.get_valid_models()
+        if llm_model_list:
+            all_models = list(
+                set(all_models + [m["model_name"] for m in llm_model_list])
+            )
+        if user_model is not None:
+            all_models += [user_model]
     verbose_proxy_logger.debug(f"all_models: {all_models}")
     ### CHECK OLLAMA MODELS ###
     try:
@@ -2111,7 +2169,7 @@ async def delete_key_fn(request: Request, data: DeleteKeyRequest):
     "/key/info", tags=["key management"], dependencies=[Depends(user_api_key_auth)]
 )
 async def info_key_fn(
-    key: str = fastapi.Query(..., description="Key in the request parameters")
+    key: str = fastapi.Query(..., description="Key in the request parameters"),
 ):
     global prisma_client
     try:

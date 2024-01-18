@@ -1,8 +1,8 @@
-from pydantic import BaseModel, Extra, Field, root_validator
+from pydantic import BaseModel, Extra, Field, root_validator, Json
 import enum
-from typing import Optional, List, Union, Dict, Literal
+from typing import Optional, List, Union, Dict, Literal, Any
 from datetime import datetime
-import uuid, json
+import uuid, json, sys, os
 
 
 class LiteLLMBase(BaseModel):
@@ -134,6 +134,8 @@ class GenerateKeyRequest(LiteLLMBase):
 
 
 class UpdateKeyRequest(LiteLLMBase):
+    # Note: the defaults of all Params here MUST BE NONE
+    # else they will get overwritten
     key: str
     duration: Optional[str] = None
     models: Optional[list] = None
@@ -142,7 +144,7 @@ class UpdateKeyRequest(LiteLLMBase):
     spend: Optional[float] = None
     user_id: Optional[str] = None
     max_parallel_requests: Optional[int] = None
-    metadata: Optional[dict] = {}
+    metadata: Optional[dict] = None
 
 
 class UserAPIKeyAuth(LiteLLMBase):  # the expected response object for user api key auth
@@ -194,6 +196,7 @@ class DynamoDBArgs(LiteLLMBase):
     user_table_name: str = "LiteLLM_UserTable"
     key_table_name: str = "LiteLLM_VerificationToken"
     config_table_name: str = "LiteLLM_Config"
+    spend_table_name: str = "LiteLLM_SpendLogs"
 
 
 class ConfigGeneralSettings(LiteLLMBase):
@@ -312,3 +315,20 @@ class LiteLLM_UserTable(LiteLLMBase):
         if values.get("models") is None:
             values.update({"models", []})
         return values
+
+
+class LiteLLM_SpendLogs(LiteLLMBase):
+    request_id: str
+    api_key: str
+    model: Optional[str] = ""
+    call_type: str
+    spend: Optional[float] = 0.0
+    startTime: Union[str, datetime, None]
+    endTime: Union[str, datetime, None]
+    user: Optional[str] = ""
+    modelParameters: Optional[Json] = {}
+    messages: Optional[Json] = []
+    response: Optional[Json] = {}
+    usage: Optional[Json] = {}
+    metadata: Optional[Json] = {}
+    cache_hit: Optional[str] = "False"

@@ -104,6 +104,11 @@ const sidebars = {
       items: [
         "proxy/quick_start", 
         "proxy/configs",
+        {
+          type: 'link',
+          label: 'All Endpoints',
+          href: 'https://litellm-api.up.railway.app/',
+        },
         "proxy/user_keys",
         "proxy/load_balancing", 
         "proxy/virtual_keys",
@@ -112,12 +117,18 @@ const sidebars = {
         "proxy/model_management",
         "proxy/reliability",
         "proxy/caching",
-        "proxy/logging", 
+        {
+          "type": "category",
+          "label": "Logging, Alerting",
+          "items": [
+            "proxy/logging", 
+            "proxy/alerting",
+            "proxy/streaming_logging",
+          ]
+        },
         "proxy/health",
         "proxy/call_hooks",
         "proxy/rules",
-        "proxy/alerting",
-        "proxy/streaming_logging",
         "proxy/deploy", 
         "proxy/cli", 
       ]
