@@ -60,6 +60,7 @@ from .exceptions import (
     RateLimitError,
     ServiceUnavailableError,
     OpenAIError,
+    PermissionDeniedError,
     ContextWindowExceededError,
     ContentPolicyViolationError,
     Timeout,
@@ -251,7 +252,13 @@ class Delta(OpenAIObject):
 
 class Choices(OpenAIObject):
     def __init__(
-        self, finish_reason=None, index=0, message=None, logprobs=None, **params
+        self,
+        finish_reason=None,
+        index=0,
+        message=None,
+        logprobs=None,
+        enhancements=None,
+        **params,
     ):
         super(Choices, self).__init__(**params)
         self.finish_reason = (
@@ -264,6 +271,8 @@ class Choices(OpenAIObject):
             self.message = message
         if logprobs is not None:
             self.logprobs = logprobs
+        if enhancements is not None:
+            self.enhancements = enhancements
 
     def __contains__(self, key):
         # Define custom behavior for the 'in' operator
@@ -318,6 +327,7 @@ class StreamingChoices(OpenAIObject):
         index=0,
         delta: Optional[Delta] = None,
         logprobs=None,
+        enhancements=None,
         **params,
     ):
         super(StreamingChoices, self).__init__(**params)
@@ -333,6 +343,8 @@ class StreamingChoices(OpenAIObject):
 
         if logprobs is not None:
             self.logprobs = logprobs
+        if enhancements is not None:
+            self.enhancements = enhancements
 
     def __contains__(self, key):
         # Define custom behavior for the 'in' operator
@@ -3196,6 +3208,10 @@ def get_optional_params(
     passed_params = locals()
     special_params = passed_params.pop("kwargs")
     for k, v in special_params.items():
+        if k.startswith("aws_") and (
+            custom_llm_provider != "bedrock" and custom_llm_provider != "sagemaker"
+        ):  # allow dynamically setting boto3 init logic
+            continue
         passed_params[k] = v
     default_params = {
         "functions": None,
@@ -3901,7 +3917,6 @@ def get_optional_params(
     elif custom_llm_provider == "mistral":
         supported_params = ["temperature", "top_p", "stream", "max_tokens"]
         _check_valid_arg(supported_params=supported_params)
-        optional_params = non_default_params
         if temperature is not None:
             optional_params["temperature"] = temperature
         if top_p is not None:
@@ -5088,8 +5103,13 @@ def convert_to_streaming_response(response_object: Optional[dict] = None):
             # gpt-4 vision can return 'finish_reason' or 'finish_details'
             finish_reason = choice.get("finish_details")
         logprobs = choice.get("logprobs", None)
+        enhancements = choice.get("enhancements", None)
         choice = StreamingChoices(
-            finish_reason=finish_reason, index=idx, delta=delta, logprobs=logprobs
+            finish_reason=finish_reason,
+            index=idx,
+            delta=delta,
+            logprobs=logprobs,
+            enhancements=enhancements,
         )
 
         choice_list.append(choice)
@@ -5147,11 +5167,13 @@ def convert_to_model_response_object(
                     # gpt-4 vision can return 'finish_reason' or 'finish_details'
                     finish_reason = choice.get("finish_details")
                 logprobs = choice.get("logprobs", None)
+                enhancements = choice.get("enhancements", None)
                 choice = Choices(
                     finish_reason=finish_reason,
                     index=idx,
                     message=message,
                     logprobs=logprobs,
+                    enhancements=enhancements,
                 )
                 choice_list.append(choice)
             model_response_object.choices = choice_list
@@ -5921,6 +5943,14 @@ def exception_type(
                     exception_mapping_worked = True
                     raise AuthenticationError(
                         message=f"BedrockException Invalid Authentication - {error_str}",
+                        model=model,
+                        llm_provider="bedrock",
+                        response=original_exception.response,
+                    )
+                if "AccessDeniedException" in error_str:
+                    exception_mapping_worked = True
+                    raise PermissionDeniedError(
+                        message=f"BedrockException PermissionDeniedError - {error_str}",
                         model=model,
                         llm_provider="bedrock",
                         response=original_exception.response,
