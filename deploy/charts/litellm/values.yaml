@@ -60,18 +60,6 @@ ingress:
   #    hosts:
   #      - chart-example.local
 
-models:
-  azure:
-    AZURE_API_KEY:
-      #TODO: SecretRef
-    AZURE_API_BASE: TODO
-    AZURE_API_VERSION: TODO
-    AZURE_AD_TOKEN: TODO
-    AZURE_API_TYPE: TODO
-  openai:
-    OPENAI_API_KEY:
-      #TODO: SecretRef
-
 db:
   # Use an existing postgres server/cluster
   useExisting: false
@@ -101,7 +89,10 @@ postgresql:
     secretKeys:
       userPasswordKey: password
 
-config: |
+# The elements within proxy_config are rendered as config.yaml for the proxy
+#  Examples: https://github.com/BerriAI/litellm/tree/main/litellm/proxy/example_config_yaml
+#  Reference: https://docs.litellm.ai/docs/proxy/configs
+proxy_config:
   model_list:
     - model_name: gpt-3.5-turbo
       litellm_params:
