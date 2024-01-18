@@ -86,11 +86,32 @@ postgres:
   # Use the Stackgres Helm chart to deploy an instance of a Stackgres cluster.
   #  The Stackgres Operator must already be installed within the target
   #  Kubernetes cluster.
-  useStackgresOperator: true
+  useStackgresOperator: false
 
   # Use the Postgres Helm chart to create a single node, stand alone postgres
-  #  instance
-  deployStandalone: false
+  #  instance.  See the "postgresql" top level key for additional configuration.
+  deployStandalone: true
+
+postgresql:
+  architecture: standalone
+  auth:
+    # postgresPassword: 
+    username: litellm
+    #password: litellm
+    database: litellm
+    existingSecret: litellm-dbcredentials
+    secretKeys:
+      userPasswordKey: password
+
+config: |
+  model_list:
+    - model_name: gpt-3.5-turbo
+      litellm_params:
+        model: gpt-3.5-turbo
+        api_key: eXaMpLeOnLy
+  general_settings:
+    database_url: postgresql://litellm:litellm@litellm-postgresql/litellm
+    master_key: 
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious

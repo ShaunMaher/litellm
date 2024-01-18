@@ -36,6 +36,15 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "main-%s" .Chart.AppVersion) }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: HOST
+              value: "0.0.0.0"
+            - name: PORT
+              value: {{ .Values.service.port | quote}}
+          args:
+            - --config
+            - /etc/litellm/config.yaml
+          # command: [ "bash", "-c", "ls -la /etc/litellm/; cat /etc/litellm/config.yaml" ]
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -50,12 +59,20 @@ spec:
               port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
           volumeMounts:
+            - name: litellm-config
+              mountPath: /etc/litellm/
+          {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- with .Values.volumes }}
       volumes:
+        - name: litellm-config
+          configMap:
+            name: {{ include "litellm.fullname" . }}-config
+            items:
+              - key: "config.yaml"
+                path: "config.yaml"
+      {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.nodeSelector }}
