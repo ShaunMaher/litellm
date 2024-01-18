@@ -72,7 +72,7 @@ models:
     OPENAI_API_KEY:
       #TODO: SecretRef
 
-postgres:
+db:
   # Use an existing postgres server/cluster
   useExisting: false
 
@@ -95,9 +95,7 @@ postgres:
 postgresql:
   architecture: standalone
   auth:
-    # postgresPassword: 
     username: litellm
-    #password: litellm
     database: litellm
     existingSecret: litellm-dbcredentials
     secretKeys:
@@ -110,8 +108,7 @@ config: |
         model: gpt-3.5-turbo
         api_key: eXaMpLeOnLy
   general_settings:
-    database_url: postgresql://litellm:litellm@litellm-postgresql/litellm
-    master_key: 
+    master_key: eXaMpLeOnLy
 
 resources: {}
   # We usually recommend not to specify default resources and to leave this as a conscious

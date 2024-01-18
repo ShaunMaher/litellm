@@ -41,22 +41,35 @@ spec:
               value: "0.0.0.0"
             - name: PORT
               value: {{ .Values.service.port | quote}}
+            - name: DATABASE_USERNAME
+              value: litellm
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "litellm.fullname" . }}-dbcredentials
+                  key: password
+            - name: DATABASE_HOST
+              value: litellm-postgresql
+            - name: DATABASE_NAME
+              value: litellm
+            - name: DATABASE_URL
+              value: "postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST)/$(DATABASE_NAME)"
           args:
             - --config
             - /etc/litellm/config.yaml
-          # command: [ "bash", "-c", "ls -la /etc/litellm/; cat /etc/litellm/config.yaml" ]
+          # command: [ "bash", "-c", "ls -la /etc/litellm/; cat /etc/litellm/config.yaml; export" ]
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
+          # livenessProbe:
+          #   httpGet:
+          #     path: /test
+          #     port: http
+          # readinessProbe:
+          #   httpGet:
+          #     path: /test
+          #     port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
