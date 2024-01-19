@@ -157,7 +157,7 @@ jobs:
       - uses: ./.github/actions/helm-oci-chart-releaser
         with:
           name: litellm
-          repository: ${{ github.repository }}
+          repository: ${{ github.repository_owner || 'litellm' }}
           tag: 0.1.0
           app_version: ${{ github.event.inputs.tag || 'latest' }}
           path: deploy/charts/litellm
