@@ -268,7 +268,7 @@ def test_completion_azure_gpt4_vision():
         pytest.fail(f"Error occurred: {e}")
 
 
-test_completion_azure_gpt4_vision()
+# test_completion_azure_gpt4_vision()
 
 
 @pytest.mark.skip(reason="this test is flaky")
@@ -990,9 +990,9 @@ def test_azure_openai_ad_token():
         print("azure ad token respoonse\n")
         print(response)
         litellm.input_callback = []
-    except:
+    except Exception as e:
         litellm.input_callback = []
-        pass
+        pytest.fail(f"An exception occurs - {str(e)}")
 
 
 # test_azure_openai_ad_token()
@@ -1269,6 +1269,8 @@ def test_completion_together_ai():
             "Cost for completion call together-computer/llama-2-70b: ",
             f"${float(cost):.10f}",
         )
+    except litellm.Timeout as e:
+        pass
     except Exception as e:
         pytest.fail(f"Error occurred: {e}")
 

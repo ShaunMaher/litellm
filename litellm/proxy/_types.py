@@ -129,8 +129,11 @@ class GenerateKeyRequest(LiteLLMBase):
     config: Optional[dict] = {}
     spend: Optional[float] = 0
     user_id: Optional[str] = None
+    team_id: Optional[str] = None
     max_parallel_requests: Optional[int] = None
     metadata: Optional[dict] = {}
+    tpm_limit: int = sys.maxsize
+    rpm_limit: int = sys.maxsize
 
 
 class UpdateKeyRequest(LiteLLMBase):
@@ -145,6 +148,8 @@ class UpdateKeyRequest(LiteLLMBase):
     user_id: Optional[str] = None
     max_parallel_requests: Optional[int] = None
     metadata: Optional[dict] = None
+    tpm_limit: int = sys.maxsize
+    rpm_limit: int = sys.maxsize
 
 
 class UserAPIKeyAuth(LiteLLMBase):  # the expected response object for user api key auth
@@ -161,6 +166,8 @@ class UserAPIKeyAuth(LiteLLMBase):  # the expected response object for user api 
     max_parallel_requests: Optional[int] = None
     duration: str = "1h"
     metadata: dict = {}
+    tpm_limit: int = sys.maxsize
+    rpm_limit: int = sys.maxsize
 
 
 class GenerateKeyResponse(LiteLLMBase):
