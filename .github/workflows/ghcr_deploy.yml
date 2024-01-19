@@ -151,8 +151,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get last published version
+        id: current_version
         shell: bash
-        run: helm show chart oci://${{ env.REGISTRY }}/shaunmaher/litellm
+        run: helm show chart oci://${{ env.REGISTRY }}/shaunmaher/litellm | grep '^version:\ ' | awk 'BEGIN{FS=":\ "}{print "current-version="$2}' >>$GITHUB_OUTPUT
         env:
           HELM_EXPERIMENTAL_OCI: '1'
 
@@ -161,7 +162,7 @@ jobs:
         id: bump_version
         uses: christian-draeger/increment-semantic-version@1.1.0
         with:
-          current-version: '0.6.5'
+          current-version: ${{ steps.current_version.current-version || '0.1.0' }}
           version-fragment: 'bug'
 
       - uses: ./.github/actions/helm-oci-chart-releaser
