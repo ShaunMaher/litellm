@@ -137,19 +137,19 @@ spec:
             {{- end }}
             - name: DATABASE_URL
               value: "postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST)/$(DATABASE_NAME)"
-          # args:
-          #   - --config
-          #   - /etc/litellm/config.yaml
-          command: 
-            - bash
-            - -c
-            - |
-              ls -la /etc/litellm/; cat /etc/litellm/config.yaml; export
-              find / 2>/dev/null | grep -v -e '^/proc' -e '^/sys' -e '^/dev' >/tmp/before.list
-              prisma generate
-              find / 2>/dev/null | grep -v -e '^/proc' -e '^/sys' -e '^/dev' >/tmp/after.list
-              diff -ruN /tmp/before.list /tmp/after.list
-              sleep 3600
+          args:
+            - --config
+            - /etc/litellm/config.yaml
+          # command: 
+          #   - bash
+          #   - -c
+          #   - |
+          #     ls -la /etc/litellm/; cat /etc/litellm/config.yaml; export
+          #     find / 2>/dev/null | grep -v -e '^/proc' -e '^/sys' -e '^/dev' >/tmp/before.list
+          #     prisma generate
+          #     find / 2>/dev/null | grep -v -e '^/proc' -e '^/sys' -e '^/dev' >/tmp/after.list
+          #     diff -ruN /tmp/before.list /tmp/after.list
+          #     sleep 3600
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
