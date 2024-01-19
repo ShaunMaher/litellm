@@ -154,7 +154,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-alpine
 
-      - uses: ./.github/actions/helm-oci-chart-releaser.yml
+      - uses: ./.github/actions/helm-oci-chart-releaser
         with:
           name: ${{ github.repository }}
           repository: helm
