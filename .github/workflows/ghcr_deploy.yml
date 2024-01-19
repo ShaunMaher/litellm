@@ -156,11 +156,11 @@ jobs:
 
       - uses: ./.github/actions/helm-oci-chart-releaser
         with:
-          name: ${{ github.repository }}
+          name: litellm
           repository: helm
           tag: 0.1.0
           app_version: ${{ github.event.inputs.tag || 'latest' }}
-          path: deploy/charts/${{ github.repository }}
+          path: deploy/charts/
           registry: ${{ env.REGISTRY }}
           registry_username: ${{ github.actor }}
           registry_password: ${{ secrets.GITHUB_TOKEN }}
