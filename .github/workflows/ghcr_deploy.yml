@@ -5,6 +5,8 @@ on:
     inputs:
       tag:
         description: "The tag version you want to build"
+      chartVersion:
+        description: "Update the helm chart's version to this"
 
 # Defines two custom environment variables for the workflow. Used for the Container registry domain, and a name for the Docker image that this workflow builds.
 env:
@@ -148,17 +150,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (tags, labels) for Alpine Dockerfile
-        id: meta-alpine
-        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+      - name: Get last published version
+        shell: bash
+        run: helm show chart oci://${{ env.REGISTRY }}/shaunmaher/litellm
+        env:
+          HELM_EXPERIMENTAL_OCI: '1'
+
+      # Automatically update the helm chart version one "patch" level
+      - name: Bump release version
+        id: bump_version
+        uses: christian-draeger/increment-semantic-version@1.1.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-alpine
+          current-version: '0.6.5'
+          version-fragment: 'bug'
 
       - uses: ./.github/actions/helm-oci-chart-releaser
         with:
-          name: litellm-helm
+          name: litellm
           repository: shaunmaher
-          tag: 0.1.0
+          tag: ${{ github.event.inputs.chartVersion || steps.bump_version.outputs.next-version || '0.1.0' }}
           app_version: ${{ github.event.inputs.tag || 'latest' }}
           path: deploy/charts/litellm
           registry: ${{ env.REGISTRY }}
