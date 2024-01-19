@@ -132,8 +132,39 @@ jobs:
           context: .
           file: Dockerfile.database
           push: true
-          tags: ${{ steps.meta-database.outputs.tags }}-${{ github.event.inputs.tag || 'latest' }}, ${{ steps.meta-database.outputs.tags }}-latest 
-          labels: ${{ steps.meta-database.outputs.labels }} 
+          tags: ${{ steps.meta-database.outputs.tags }}-${{ github.event.inputs.tag || 'latest' }}, ${{ steps.meta-database.outputs.tags }}-latest
+          labels: ${{ steps.meta-database.outputs.labels }}
+          
+  build-and-push-helm-chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Alpine Dockerfile
+        id: meta-alpine
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-alpine
+
+      - uses: ./.github/actions/helm-oci-chart-releaser.yml
+        with:
+          name: ${{ github.repository }}
+          repository: helm
+          tag: 0.1.0
+          app_version: ${{ github.event.inputs.tag || 'latest' }}
+          path: deploy/charts/${{ github.repository }}
+          registry: ${{ env.REGISTRY }}
+          registry_username: ${{ github.actor }}
+          registry_password: ${{ secrets.GITHUB_TOKEN }}
+          update_dependencies: true
   release:
     name: "New LiteLLM Release"
     needs: [docker-hub-deploy, build-and-push-image, build-and-push-image-database]
