@@ -153,7 +153,7 @@ jobs:
       - name: Get last published version
         id: current_version
         shell: bash
-        run: helm show chart oci://${{ env.REGISTRY }}/shaunmaher/litellm | grep '^version:' | awk 'BEGIN{FS=":"}{print "current-version="$2}' | tee -a $GITHUB_OUTPUT
+        run: helm show chart oci://${{ env.REGISTRY }}/shaunmaher/litellm | grep '^version:' | awk 'BEGIN{FS=":"}{print "current-version="$2}' | tr -d " " | tee -a $GITHUB_OUTPUT
         env:
           HELM_EXPERIMENTAL_OCI: '1'
 
