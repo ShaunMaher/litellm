@@ -162,7 +162,7 @@ jobs:
         id: bump_version
         uses: christian-draeger/increment-semantic-version@1.1.0
         with:
-          current-version: ${{ steps.current_version.current-version || '0.1.0' }}
+          current-version: ${{ steps.current_version.outputs.current-version || '0.1.0' }}
           version-fragment: 'bug'
 
       - uses: ./.github/actions/helm-oci-chart-releaser
