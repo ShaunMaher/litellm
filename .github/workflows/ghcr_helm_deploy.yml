@@ -47,11 +47,11 @@ jobs:
 
       - uses: ./.github/actions/helm-oci-chart-releaser
         with:
-          name: litellm
+          name: litellm-helm
           repository: shaunmaher
           tag: ${{ github.event.inputs.chartVersion || steps.bump_version.outputs.next-version || '0.1.0' }}
           app_version: ${{ steps.current_app_tag.outputs.tag || 'latest' }}
-          path: deploy/charts/litellm
+          path: deploy/charts/litellm-hellm
           registry: ${{ env.REGISTRY }}
           registry_username: ${{ github.actor }}
           registry_password: ${{ secrets.GITHUB_TOKEN }}
