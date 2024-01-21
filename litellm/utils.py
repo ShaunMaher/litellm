@@ -36,6 +36,7 @@ os.environ[
 ] = filename  # use local copy of tiktoken b/c of - https://github.com/BerriAI/litellm/issues/1071
 encoding = tiktoken.get_encoding("cl100k_base")
 import importlib.metadata
+from ._logging import verbose_logger
 from .integrations.traceloop import TraceloopLogger
 from .integrations.helicone import HeliconeLogger
 from .integrations.aispend import AISpendLogger
@@ -773,7 +774,7 @@ class Logging:
         self.model = model
         self.user = user
         self.litellm_params = litellm_params
-        self.logger_fn = litellm_params["logger_fn"]
+        self.logger_fn = litellm_params.get("logger_fn", None)
         print_verbose(f"self.optional_params: {self.optional_params}")
         self.model_call_details = {
             "model": self.model,
@@ -1083,19 +1084,13 @@ class Logging:
     def success_handler(
         self, result=None, start_time=None, end_time=None, cache_hit=None, **kwargs
     ):
-        print_verbose(f"Logging Details LiteLLM-Success Call")
+        verbose_logger.debug(f"Logging Details LiteLLM-Success Call")
         # print(f"original response in success handler: {self.model_call_details['original_response']}")
         try:
-            print_verbose(f"success callbacks: {litellm.success_callback}")
+            verbose_logger.debug(f"success callbacks: {litellm.success_callback}")
             ## BUILD COMPLETE STREAMED RESPONSE
             complete_streaming_response = None
-            if (
-                self.stream
-                and self.model_call_details.get("litellm_params", {}).get(
-                    "acompletion", False
-                )
-                == False
-            ):  # only call stream chunk builder if it's not acompletion()
+            if self.stream:
                 if (
                     result.choices[0].finish_reason is not None
                 ):  # if it's the last chunk
@@ -1112,6 +1107,9 @@ class Logging:
                     self.streaming_chunks.append(result)
 
             if complete_streaming_response:
+                verbose_logger.info(
+                    f"Logging Details LiteLLM-Success Call streaming complete"
+                )
                 self.model_call_details[
                     "complete_streaming_response"
                 ] = complete_streaming_response
@@ -1242,7 +1240,7 @@ class Logging:
                         )
                     if callback == "langfuse":
                         global langFuseLogger
-                        print_verbose("reaches langfuse for logging!")
+                        verbose_logger.debug("reaches langfuse for logging!")
                         kwargs = {}
                         for k, v in self.model_call_details.items():
                             if (
@@ -1251,7 +1249,10 @@ class Logging:
                                 kwargs[k] = v
                         # this only logs streaming once, complete_streaming_response exists i.e when stream ends
                         if self.stream:
-                            if "complete_streaming_response" not in kwargs:
+                            verbose_logger.debug(
+                                f"is complete_streaming_response in kwargs: {kwargs.get('complete_streaming_response', None)}"
+                            )
+                            if complete_streaming_response is None:
                                 break
                             else:
                                 print_verbose("reaches langfuse for streaming logging!")
@@ -1864,12 +1865,6 @@ def client(original_function):
                         # we only support async s3 logging for acompletion/aembedding since that's used on proxy
                         litellm._async_success_callback.append(callback)
                         removed_async_items.append(index)
-                    elif callback == "langfuse" and inspect.iscoroutinefunction(
-                        original_function
-                    ):
-                        # use async success callback for langfuse if this is litellm.acompletion(). Streaming logging does not work otherwise
-                        litellm._async_success_callback.append(callback)
-                        removed_async_items.append(index)
 
                 # Pop the async items from success_callback in reverse order to avoid index issues
                 for index in reversed(removed_async_items):
@@ -1947,6 +1942,15 @@ def client(original_function):
                 call_type=call_type,
                 start_time=start_time,
             )
+            ## check if metadata is passed in
+            if "metadata" in kwargs:
+                litellm_params = {"metadata": kwargs["metadata"]}
+                logging_obj.update_environment_variables(
+                    model=model,
+                    user="",
+                    optional_params={},
+                    litellm_params=litellm_params,
+                )
             return logging_obj
         except Exception as e:
             import logging
@@ -2363,6 +2367,7 @@ def client(original_function):
             threading.Thread(
                 target=logging_obj.success_handler, args=(result, start_time, end_time)
             ).start()
+
             # RETURN RESULT
             if hasattr(result, "_hidden_params"):
                 result._hidden_params["model_id"] = kwargs.get("model_info", {}).get(
@@ -3305,6 +3310,8 @@ def get_optional_params(
         unsupported_params = {}
         for k in non_default_params.keys():
             if k not in supported_params:
+                if k == "user":
+                    continue
                 if k == "n" and n == 1:  # langchain sends n=1 as a default value
                     continue  # skip this param
                 if (
@@ -7616,7 +7623,9 @@ class CustomStreamWrapper:
                             raise Exception("An unknown error occurred with the stream")
                         model_response.choices[0].finish_reason = "stop"
                         self.sent_last_chunk = True
-            elif self.custom_llm_provider and self.custom_llm_provider == "vertex_ai":
+            elif self.custom_llm_provider == "gemini":
+                completion_obj["content"] = chunk.text
+            elif self.custom_llm_provider and (self.custom_llm_provider == "vertex_ai"):
                 try:
                     # print(chunk)
                     if hasattr(chunk, "text"):

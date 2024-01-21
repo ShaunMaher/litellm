@@ -29,8 +29,8 @@ class MaxParallelRequestsHandler(CustomLogger):
         self.print_verbose(f"Inside Max Parallel Request Pre-Call Hook")
         api_key = user_api_key_dict.api_key
         max_parallel_requests = user_api_key_dict.max_parallel_requests or sys.maxsize
-        tpm_limit = user_api_key_dict.tpm_limit
-        rpm_limit = user_api_key_dict.rpm_limit
+        tpm_limit = user_api_key_dict.tpm_limit or sys.maxsize
+        rpm_limit = user_api_key_dict.rpm_limit or sys.maxsize
 
         if api_key is None:
             return
@@ -186,4 +186,4 @@ class MaxParallelRequestsHandler(CustomLogger):
                     request_count_api_key, new_val, ttl=60
                 )  # save in cache for up to 1 min.
         except Exception as e:
-            self.print_verbose(f"An exception occurred - {str(e)}")  # noqa
+            print(f"An exception occurred - {str(e)}")  # noqa

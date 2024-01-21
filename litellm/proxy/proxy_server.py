@@ -252,6 +252,18 @@ async def user_api_key_auth(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="'allow_user_auth' not set or set to False",
                 )
+        elif (
+            route == "/routes"
+            or route == "/"
+            or route == "/health/liveliness"
+            or route == "/health/readiness"
+            or route == "/test"
+            or route == "/config/yaml"
+        ):
+            """
+            Unprotected endpoints
+            """
+            return UserAPIKeyAuth()
 
         if api_key is None:  # only require api key if master key is set
             raise Exception(f"No api key passed in.")
@@ -263,16 +275,6 @@ async def user_api_key_auth(
 
         if route.startswith("/config/") and not is_master_key_valid:
             raise Exception(f"Only admin can modify config")
-
-        if (
-            (route.startswith("/key/") or route.startswith("/user/"))
-            or route.startswith("/model/")
-            and not is_master_key_valid
-            and general_settings.get("allow_user_auth", False) != True
-        ):
-            raise Exception(
-                f"If master key is set, only master key can be used to generate, delete, update or get info for new keys/users"
-            )
 
         if (
             prisma_client is None and custom_db_client is None
@@ -432,6 +434,39 @@ async def user_api_key_auth(
                         db=custom_db_client,
                     )
                 )
+
+            if (
+                (route.startswith("/key/") or route.startswith("/user/"))
+                or route.startswith("/model/")
+                and not is_master_key_valid
+                and general_settings.get("allow_user_auth", False) != True
+            ):
+                if route == "/key/info":
+                    # check if user can access this route
+                    query_params = request.query_params
+                    key = query_params.get("key")
+                    if prisma_client.hash_token(token=key) != api_key:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="user not allowed to access this key's info",
+                        )
+                elif route == "/user/info":
+                    # check if user can access this route
+                    query_params = request.query_params
+                    user_id = query_params.get("user_id")
+                    if user_id != valid_token.user_id:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="user not allowed to access this key's info",
+                        )
+                elif route == "/model/info":
+                    # /model/info just shows models user has access to
+                    pass
+                else:
+                    raise Exception(
+                        f"If master key is set, only master key can be used to generate, delete, update or get info for new keys/users"
+                    )
+
             return UserAPIKeyAuth(api_key=api_key, **valid_token_dict)
         else:
             raise Exception(f"Invalid Key Passed to LiteLLM Proxy")
@@ -523,18 +558,26 @@ async def track_cost_callback(
         verbose_proxy_logger.debug(
             f"kwargs stream: {kwargs.get('stream', None)} + complete streaming response: {kwargs.get('complete_streaming_response', None)}"
         )
+        litellm_params = kwargs.get("litellm_params", {}) or {}
+        proxy_server_request = litellm_params.get("proxy_server_request") or {}
+        user_id = proxy_server_request.get("body", {}).get("user", None)
         if "complete_streaming_response" in kwargs:
             # for tracking streaming cost we pass the "messages" and the output_text to litellm.completion_cost
             completion_response = kwargs["complete_streaming_response"]
             response_cost = litellm.completion_cost(
                 completion_response=completion_response
             )
-            verbose_proxy_logger.debug(f"streaming response_cost {response_cost}")
+
             user_api_key = kwargs["litellm_params"]["metadata"].get(
                 "user_api_key", None
             )
-            user_id = kwargs["litellm_params"]["metadata"].get(
+
+            user_id = user_id or kwargs["litellm_params"]["metadata"].get(
                 "user_api_key_user_id", None
+            )
+
+            verbose_proxy_logger.debug(
+                f"streaming response_cost {response_cost}, for user_id {user_id}"
             )
             if user_api_key and (
                 prisma_client is not None or custom_db_client is not None
@@ -555,8 +598,11 @@ async def track_cost_callback(
             user_api_key = kwargs["litellm_params"]["metadata"].get(
                 "user_api_key", None
             )
-            user_id = kwargs["litellm_params"]["metadata"].get(
+            user_id = user_id or kwargs["litellm_params"]["metadata"].get(
                 "user_api_key_user_id", None
+            )
+            verbose_proxy_logger.debug(
+                f"response_cost {response_cost}, for user_id {user_id}"
             )
             if user_api_key and (
                 prisma_client is not None or custom_db_client is not None
@@ -1241,20 +1287,28 @@ async def initialize(
     user_model = model
     user_debug = debug
     if debug == True:  # this needs to be first, so users can see Router init debugg
-        from litellm._logging import verbose_router_logger, verbose_proxy_logger
+        from litellm._logging import (
+            verbose_router_logger,
+            verbose_proxy_logger,
+            verbose_logger,
+        )
         import logging
 
         # this must ALWAYS remain logging.INFO, DO NOT MODIFY THIS
-
+        verbose_logger.setLevel(level=logging.INFO)  # sets package logs to info
         verbose_router_logger.setLevel(level=logging.INFO)  # set router logs to info
         verbose_proxy_logger.setLevel(level=logging.INFO)  # set proxy logs to info
     if detailed_debug == True:
-        from litellm._logging import verbose_router_logger, verbose_proxy_logger
+        from litellm._logging import (
+            verbose_router_logger,
+            verbose_proxy_logger,
+            verbose_logger,
+        )
         import logging
 
-        verbose_router_logger.setLevel(level=logging.DEBUG)  # set router logs to info
+        verbose_logger.setLevel(level=logging.DEBUG)  # set package log to debug
+        verbose_router_logger.setLevel(level=logging.DEBUG)  # set router logs to debug
         verbose_proxy_logger.setLevel(level=logging.DEBUG)  # set proxy logs to debug
-        litellm.set_verbose = True
     elif debug == False and detailed_debug == False:
         # users can control proxy debugging using env variable = 'LITELLM_LOG'
         litellm_log_setting = os.environ.get("LITELLM_LOG", "")
@@ -2149,7 +2203,7 @@ async def update_key_fn(request: Request, data: UpdateKeyRequest):
 @router.post(
     "/key/delete", tags=["key management"], dependencies=[Depends(user_api_key_auth)]
 )
-async def delete_key_fn(request: Request, data: DeleteKeyRequest):
+async def delete_key_fn(data: DeleteKeyRequest):
     """
     Delete a key from the key management system.
 
@@ -2192,6 +2246,13 @@ async def info_key_fn(
                 f"Database not connected. Connect a database to your proxy - https://docs.litellm.ai/docs/simple_proxy#managing-auth---virtual-keys"
             )
         key_info = await prisma_client.get_data(token=key)
+        ## REMOVE HASHED TOKEN INFO BEFORE RETURNING ##
+        try:
+            key_info = key_info.model_dump()  # noqa
+        except:
+            # if using pydantic v1
+            key_info = key_info.dict()
+        key_info.pop("token")
         return {"key": key, "info": key_info}
     except Exception as e:
         raise HTTPException(
@@ -2327,6 +2388,14 @@ async def user_info(
         keys = await prisma_client.get_data(
             user_id=user_id, table_name="key", query_type="find_all"
         )
+        ## REMOVE HASHED TOKEN INFO before returning ##
+        for key in keys:
+            try:
+                key = key.model_dump()  # noqa
+            except:
+                # if using pydantic v1
+                key = key.dict()
+            key.pop("token", None)
         return {"user_id": user_id, "user_info": user_info, "keys": keys}
     except Exception as e:
         raise HTTPException(
@@ -2404,13 +2473,19 @@ async def add_new_model(model_params: ModelParams):
     tags=["model management"],
     dependencies=[Depends(user_api_key_auth)],
 )
-async def model_info_v1(request: Request):
+async def model_info_v1(
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
+):
     global llm_model_list, general_settings, user_config_file_path, proxy_config
 
     # Load existing config
     config = await proxy_config.get_config()
 
-    all_models = config["model_list"]
+    if len(user_api_key_dict.models) > 0:
+        model_names = user_api_key_dict.models
+        all_models = [m for m in config["model_list"] if m in model_names]
+    else:
+        all_models = config["model_list"]
     for model in all_models:
         # provided model_info in config.yaml
         model_info = model.get("model_info", {})
@@ -2699,7 +2774,11 @@ async def update_config(config_info: ConfigYAML):
         raise HTTPException(status_code=500, detail=f"An error occurred - {str(e)}")
 
 
-@router.get("/config/yaml", tags=["config.yaml"])
+@router.get(
+    "/config/yaml",
+    tags=["config.yaml"],
+    dependencies=[Depends(user_api_key_auth)],
+)
 async def config_yaml_endpoint(config_info: ConfigYAML):
     """
     This is a mock endpoint, to show what you can set in config.yaml details in the Swagger UI.
@@ -2720,9 +2799,15 @@ async def config_yaml_endpoint(config_info: ConfigYAML):
     return {"hello": "world"}
 
 
-@router.get("/test", tags=["health"])
+@router.get(
+    "/test",
+    tags=["health"],
+    dependencies=[Depends(user_api_key_auth)],
+)
 async def test_endpoint(request: Request):
     """
+    [DEPRECATED] use `/health/liveliness` instead.
+
     A test endpoint that pings the proxy server to check if it's healthy.
 
     Parameters:
@@ -2737,7 +2822,7 @@ async def test_endpoint(request: Request):
 
 @router.get("/health", tags=["health"], dependencies=[Depends(user_api_key_auth)])
 async def health_endpoint(
-    request: Request,
+    user_api_key_dict: UserAPIKeyAuth = Depends(user_api_key_auth),
     model: Optional[str] = fastapi.Query(
         None, description="Specify the model name (optional)"
     ),
@@ -2772,6 +2857,11 @@ async def health_endpoint(
             detail={"error": "Model list not initialized"},
         )
 
+    ### FILTER MODELS FOR ONLY THOSE USER HAS ACCESS TO ###
+    if len(user_api_key_dict.models) > 0:
+        allowed_model_names = user_api_key_dict.models
+    else:
+        allowed_model_names = []  #
     if use_background_health_checks:
         return health_check_results
     else:
@@ -2787,21 +2877,45 @@ async def health_endpoint(
         }
 
 
-@router.get("/health/readiness", tags=["health"])
+@router.get(
+    "/health/readiness",
+    tags=["health"],
+    dependencies=[Depends(user_api_key_auth)],
+)
 async def health_readiness():
     """
     Unprotected endpoint for checking if worker can receive requests
     """
     global prisma_client
+
+    cache_type = None
+    if litellm.cache is not None:
+        cache_type = litellm.cache.type
     if prisma_client is not None:  # if db passed in, check if it's connected
         if prisma_client.db.is_connected() == True:
-            return {"status": "healthy", "db": "connected"}
+            response_object = {"db": "connected"}
+
+            return {
+                "status": "healthy",
+                "db": "connected",
+                "cache": cache_type,
+                "success_callbacks": litellm.success_callback,
+            }
     else:
-        return {"status": "healthy", "db": "Not connected"}
+        return {
+            "status": "healthy",
+            "db": "Not connected",
+            "cache": cache_type,
+            "success_callbacks": litellm.success_callback,
+        }
     raise HTTPException(status_code=503, detail="Service Unhealthy")
 
 
-@router.get("/health/liveliness", tags=["health"])
+@router.get(
+    "/health/liveliness",
+    tags=["health"],
+    dependencies=[Depends(user_api_key_auth)],
+)
 async def health_liveliness():
     """
     Unprotected endpoint for checking if worker is alive
@@ -2809,12 +2923,12 @@ async def health_liveliness():
     return "I'm alive!"
 
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(user_api_key_auth)])
 async def home(request: Request):
     return "LiteLLM: RUNNING"
 
 
-@router.get("/routes")
+@router.get("/routes", dependencies=[Depends(user_api_key_auth)])
 async def get_routes():
     """
     Get a list of available routes in the FastAPI application.

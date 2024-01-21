@@ -13,7 +13,7 @@ class LiteLLMBase(BaseModel):
     def json(self, **kwargs):
         try:
             return self.model_dump()  # noqa
-        except:
+        except Exception as e:
             # if using pydantic v1
             return self.dict()
 
@@ -132,8 +132,8 @@ class GenerateKeyRequest(LiteLLMBase):
     team_id: Optional[str] = None
     max_parallel_requests: Optional[int] = None
     metadata: Optional[dict] = {}
-    tpm_limit: int = sys.maxsize
-    rpm_limit: int = sys.maxsize
+    tpm_limit: Optional[int] = None
+    rpm_limit: Optional[int] = None
 
 
 class UpdateKeyRequest(LiteLLMBase):
@@ -148,8 +148,8 @@ class UpdateKeyRequest(LiteLLMBase):
     user_id: Optional[str] = None
     max_parallel_requests: Optional[int] = None
     metadata: Optional[dict] = None
-    tpm_limit: int = sys.maxsize
-    rpm_limit: int = sys.maxsize
+    tpm_limit: Optional[int] = None
+    rpm_limit: Optional[int] = None
 
 
 class UserAPIKeyAuth(LiteLLMBase):  # the expected response object for user api key auth
@@ -166,8 +166,8 @@ class UserAPIKeyAuth(LiteLLMBase):  # the expected response object for user api 
     max_parallel_requests: Optional[int] = None
     duration: str = "1h"
     metadata: dict = {}
-    tpm_limit: int = sys.maxsize
-    rpm_limit: int = sys.maxsize
+    tpm_limit: Optional[int] = None
+    rpm_limit: Optional[int] = None
 
 
 class GenerateKeyResponse(LiteLLMBase):
@@ -177,7 +177,7 @@ class GenerateKeyResponse(LiteLLMBase):
 
 
 class DeleteKeyRequest(LiteLLMBase):
-    keys: List[str]
+    keys: List
 
 
 class NewUserRequest(GenerateKeyRequest):
