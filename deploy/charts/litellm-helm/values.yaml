@@ -122,6 +122,7 @@ db:
 
   # How to connect to the existing postgres server/cluster
   endpoint: localhost
+  database: litellm
   secret:
     name: postgres
     usernameKey: username
@@ -150,6 +151,8 @@ postgresql:
     password: NoTaGrEaTpAsSwOrD
     postgres-password: NoTaGrEaTpAsSwOrD
 
+    # A secret is created by this chart (litellm-helm) with the credentials that
+    #  the new Postgres instance should use.
     existingSecret: litellm-dbcredentials
     secretKeys:
       userPasswordKey: password
