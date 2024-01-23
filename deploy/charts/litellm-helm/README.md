@@ -18,17 +18,18 @@ If `db.useStackgresOperator` is used (not yet implemented):
 | Name                                                       | Description                                                                                                                                                                           | Value |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | `replicaCount`                                             | The number of LiteLLM Proxy pods to be deployed                                                                                                                                       | `1`  |
+| `masterkey`                                                | The Master API Key for LiteLLM.  If not specified, a random key is generated.                                                                                                         | N/A  |
 | `image.repository`                                         | LiteLLM Proxy image repository                                                                                                                                                          | `ghcr.io/berriai/litellm`  |
 | `image.pullPolicy`                                         | LiteLLM Proxy image pull policy                                                                                                                                                       | `IfNotPresent`  |
 | `image.tag`                                                | Overrides the image tag whose default the latest version of LiteLLM at the time this chart was published.                                                                             | `""`  |
 | `image.dbReadyImage`                                       | On Pod startup, an initContainer is used to make sure the Postgres database is available before attempting to start LiteLLM.  This field specifies the image to use as that initContainer.  | `docker.io/bitnami/postgresql`  |
 | `image.dbReadyTag`                                         | Tag for the above image.  If not specified, "latest" is used.                                                                                                                         | `""`  |
-| `imagePullSecrets`                                         | Registry credentials for the above images.                                                                                                                                            | `[]`  |
+| `imagePullSecrets`                                         | Registry credentials for the LiteLLM and initContainer images.                                                                                                                        | `[]`  |
 | `serviceAccount.create`                                    | Whether or not to create a Kubernetes Service Account for this deployment.  The default is `false` because LiteLLM has no need to access the Kubernetes API.                          | `false`  |
 | `service.type`                                             | Kubernetes Service type (e.g. `LoadBalancer`, `ClusterIP`, etc.)                                                                                                                      | `ClusterIP`  |
 | `service.port`                                             | TCP port that the Kubernetes Service will listen on.  Also the TCP port within the Pod that the proxy will listen on.                                                                 | `8000`  |
-| `ingress.*`                                                | See [values.yaml](./values.yaml) for example settings                                                                                                                                 | N/A |
-| `proxy_config.*`                                           | See [values.yaml](./values.yaml) for example settings                                                                                                                                 | `false`  |
+| `ingress.*`                                                | See [values.yaml](./values.yaml) for example settings                                                                                                                                 | N/A  |
+| `proxy_config.*`                                           | See [values.yaml](./values.yaml) for default settings.  See [example_config_yaml](../../../litellm/proxy/example_config_yaml/) for configuration examples.                            | N/A  |
 
 ### LiteLLM Admin UI Settings
 
@@ -41,7 +42,7 @@ If `db.useStackgresOperator` is used (not yet implemented):
 | `ui.image.tag`                                             | Overrides the image tag whose default the latest version of LiteLLM at the time this chart was published.                                                                             | `""`  |
 | `ui.imagePullSecrets`                                      | Registry credentials for the above images.                                                                                                                                                         | `[]`  |
 | `ui.service.type`                                          | Kubernetes Service type (e.g. `LoadBalancer`, `ClusterIP`, etc.)                                                                                                                      | `ClusterIP`  |
-| `ui.service.port`                                          | TCP port that the Kubernetes Service will listen on.  Also the TCP port within the Pod that the proxy will listen on.                                                                 | `8000`  |
+| `ui.service.port`                                          | TCP port that the Kubernetes Service will listen on.  Also the TCP port within the Pod that the web server will listen on.                                                                 | `8000`  |
 | `ui.ingress.*`                                             | See [values.yaml](./values.yaml) for example settings                                                                                                                                 | N/A |
 
 ### Database Settings
@@ -70,4 +71,19 @@ data:
   username: litellm
   password: <some secure password, base64 encoded>
 type: Opaque
+```
+
+## Accessing the Admin UI
+When browsing to the URL published per the settings in `ui.ingress.*`, you will
+be prompted for **Admin Configuration**.  The **Proxy Endpoint** is the internal
+(from the `litellm-ui` pod's perspective) URL published by the `litellm-proxy`
+Kubernetes Service.  If the deployment uses the default settings for this
+service, the **Proxy Endpoint** should be set to `http://litellm-proxy:8000`.
+
+The **Proxy Key** is the value specified for `masterkey` or, if a `masterkey`
+was not provided to the helm command line, the `masterkey` is a randomly
+generated string stored in the `litellm-masterkey` Kubernetes Secret.
+
+```bash
+kubectl -n litellm get secret litellm-masterkey -o jsonpath="{.data.masterkey}"
 ```

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm.fullname" . }}
+  name: {{ include "litellm.fullname" . }}-proxy
   labels:
     {{- include "litellm.labels" . | nindent 4 }}
 spec:

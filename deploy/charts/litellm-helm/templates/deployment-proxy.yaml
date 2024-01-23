@@ -94,7 +94,7 @@ spec:
               mountPath: /tmp
           {{ end }}
       containers:
-        - name: {{ .Chart.Name }}
+        - name: {{ include "litellm.name" . }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "main-%s" .Chart.AppVersion) }}"
@@ -137,6 +137,11 @@ spec:
             {{- end }}
             - name: DATABASE_URL
               value: "postgresql://$(DATABASE_USERNAME):$(DATABASE_PASSWORD)@$(DATABASE_HOST)/$(DATABASE_NAME)"
+            - name: PROXY_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "litellm.fullname" . }}-masterkey
+                  key: masterkey
           args:
             - --config
             - /etc/litellm/config.yaml
