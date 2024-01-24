@@ -19,7 +19,8 @@ If `db.useStackgresOperator` is used (not yet implemented):
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- |
 | `replicaCount`                                             | The number of LiteLLM Proxy pods to be deployed                                                                                                                                       | `1`  |
 | `masterkey`                                                | The Master API Key for LiteLLM.  If not specified, a random key is generated.                                                                                                         | N/A  |
-| `image.repository`                                         | LiteLLM Proxy image repository                                                                                                                                                          | `ghcr.io/berriai/litellm`  |
+| `environmentSecrets`                                       | An optional array of Secret object names.  The keys and values in these secrets will be presented to the LiteLLM proxy pod as environment variables.  See below for an example Secret object.  | `[]`  |
+| `image.repository`                                         | LiteLLM Proxy image repository                                                                                                                                                        | `ghcr.io/berriai/litellm`  |
 | `image.pullPolicy`                                         | LiteLLM Proxy image pull policy                                                                                                                                                       | `IfNotPresent`  |
 | `image.tag`                                                | Overrides the image tag whose default the latest version of LiteLLM at the time this chart was published.                                                                             | `""`  |
 | `image.dbReadyImage`                                       | On Pod startup, an initContainer is used to make sure the Postgres database is available before attempting to start LiteLLM.  This field specifies the image to use as that initContainer.  | `docker.io/bitnami/postgresql`  |
@@ -30,6 +31,17 @@ If `db.useStackgresOperator` is used (not yet implemented):
 | `service.port`                                             | TCP port that the Kubernetes Service will listen on.  Also the TCP port within the Pod that the proxy will listen on.                                                                 | `8000`  |
 | `ingress.*`                                                | See [values.yaml](./values.yaml) for example settings                                                                                                                                 | N/A  |
 | `proxy_config.*`                                           | See [values.yaml](./values.yaml) for default settings.  See [example_config_yaml](../../../litellm/proxy/example_config_yaml/) for configuration examples.                            | N/A  |
+
+#### Example `environmentSecrets` Secret 
+```
+apiVersion: v1
+kind: Secret
+metadata:
+  name: litellm-envsecrets
+data:
+  AZURE_OPENAI_API_KEY: TXlTZWN1cmVLM3k=
+type: Opaque
+```
 
 ### LiteLLM Admin UI Settings
 
@@ -87,3 +99,9 @@ generated string stored in the `litellm-masterkey` Kubernetes Secret.
 ```bash
 kubectl -n litellm get secret litellm-masterkey -o jsonpath="{.data.masterkey}"
 ```
+
+## Admin UI Limitations
+At the time of writing, the Admin UI is unable to add models.  This is because
+it would need to update the `config.yaml` file which is a exposed ConfigMap, and
+therefore, read-only.  This is a limitation of this helm chart, not the Admin UI
+itself.

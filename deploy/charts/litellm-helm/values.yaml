@@ -45,6 +45,12 @@ securityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1000
 
+# A list of Kubernetes Secret objects that will be exported to the LiteLLM proxy
+#  pod as environment variables.  These secrets can then be referenced in the
+#  configuration file (or "litellm" ConfigMap) with `os.environ/<Env Var Name>`
+environmentSecrets: []
+  # - litellm-envsecrets
+
 service:
   type: ClusterIP
   port: 8000

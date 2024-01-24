@@ -142,6 +142,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "litellm.name" . }}-masterkey
                   key: masterkey
+          envFrom:
+          {{- range .Values.environmentSecrets }}
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
           args:
             - --config
             - /etc/litellm/config.yaml
