@@ -844,7 +844,7 @@ class Logging:
                 curl_command += additional_args.get("request_str", None)
             elif api_base == "":
                 curl_command = self.model_call_details
-            print_verbose(f"\033[92m{curl_command}\033[0m\n")
+            verbose_logger.info(f"\033[92m{curl_command}\033[0m\n")
             if self.logger_fn and callable(self.logger_fn):
                 try:
                     self.logger_fn(
@@ -1064,6 +1064,31 @@ class Logging:
             self.model_call_details["log_event_type"] = "successful_api_call"
             self.model_call_details["end_time"] = end_time
             self.model_call_details["cache_hit"] = cache_hit
+            ## if model in model cost map - log the response cost
+            ## else set cost to None
+            verbose_logger.debug(f"Model={self.model}; result={result}")
+            if (
+                result is not None
+                and (
+                    isinstance(result, ModelResponse)
+                    or isinstance(result, EmbeddingResponse)
+                )
+                and self.stream != True
+            ):  # handle streaming separately
+                try:
+                    self.model_call_details["response_cost"] = litellm.completion_cost(
+                        completion_response=result,
+                    )
+                    verbose_logger.debug(
+                        f"Model={self.model}; cost={self.model_call_details['response_cost']}"
+                    )
+                except litellm.NotFoundError as e:
+                    verbose_logger.debug(
+                        f"Model={self.model} not found in completion cost map."
+                    )
+                    self.model_call_details["response_cost"] = None
+            else:  # streaming chunks + image gen.
+                self.model_call_details["response_cost"] = None
 
             if litellm.max_budget and self.stream:
                 time_diff = (end_time - start_time).total_seconds()
@@ -1077,12 +1102,18 @@ class Logging:
 
             return start_time, end_time, result
         except Exception as e:
-            print_verbose(f"[Non-Blocking] LiteLLM.Success_Call Error: {str(e)}")
+            raise Exception(f"[Non-Blocking] LiteLLM.Success_Call Error: {str(e)}")
 
     def success_handler(
         self, result=None, start_time=None, end_time=None, cache_hit=None, **kwargs
     ):
         verbose_logger.debug(f"Logging Details LiteLLM-Success Call")
+        start_time, end_time, result = self._success_handler_helper_fn(
+            start_time=start_time,
+            end_time=end_time,
+            result=result,
+            cache_hit=cache_hit,
+        )
         # print(f"original response in success handler: {self.model_call_details['original_response']}")
         try:
             verbose_logger.debug(f"success callbacks: {litellm.success_callback}")
@@ -1098,26 +1129,34 @@ class Logging:
                         complete_streaming_response = litellm.stream_chunk_builder(
                             self.sync_streaming_chunks,
                             messages=self.model_call_details.get("messages", None),
+                            start_time=start_time,
+                            end_time=end_time,
                         )
                     except:
                         complete_streaming_response = None
                 else:
                     self.sync_streaming_chunks.append(result)
 
-            if complete_streaming_response:
+            if complete_streaming_response is not None:
                 verbose_logger.debug(
                     f"Logging Details LiteLLM-Success Call streaming complete"
                 )
                 self.model_call_details[
                     "complete_streaming_response"
                 ] = complete_streaming_response
+                try:
+                    self.model_call_details["response_cost"] = litellm.completion_cost(
+                        completion_response=complete_streaming_response,
+                    )
+                    verbose_logger.debug(
+                        f"Model={self.model}; cost={self.model_call_details['response_cost']}"
+                    )
+                except litellm.NotFoundError as e:
+                    verbose_logger.debug(
+                        f"Model={self.model} not found in completion cost map."
+                    )
+                    self.model_call_details["response_cost"] = None
 
-            start_time, end_time, result = self._success_handler_helper_fn(
-                start_time=start_time,
-                end_time=end_time,
-                result=result,
-                cache_hit=cache_hit,
-            )
             for callback in litellm.success_callback:
                 try:
                     if callback == "lite_debugger":
@@ -1397,11 +1436,23 @@ class Logging:
                     complete_streaming_response = None
             else:
                 self.streaming_chunks.append(result)
-        if complete_streaming_response:
+        if complete_streaming_response is not None:
             print_verbose("Async success callbacks: Got a complete streaming response")
             self.model_call_details[
                 "complete_streaming_response"
             ] = complete_streaming_response
+            try:
+                self.model_call_details["response_cost"] = litellm.completion_cost(
+                    completion_response=complete_streaming_response,
+                )
+                verbose_logger.debug(
+                    f"Model={self.model}; cost={self.model_call_details['response_cost']}"
+                )
+            except litellm.NotFoundError as e:
+                verbose_logger.debug(
+                    f"Model={self.model} not found in completion cost map."
+                )
+                self.model_call_details["response_cost"] = None
 
         for callback in litellm._async_success_callback:
             try:
@@ -1449,14 +1500,27 @@ class Logging:
                             end_time=end_time,
                         )
                 if callable(callback):  # custom logger functions
-                    await customLogger.async_log_event(
-                        kwargs=self.model_call_details,
-                        response_obj=result,
-                        start_time=start_time,
-                        end_time=end_time,
-                        print_verbose=print_verbose,
-                        callback_func=callback,
-                    )
+                    if self.stream:
+                        if "complete_streaming_response" in self.model_call_details:
+                            await customLogger.async_log_event(
+                                kwargs=self.model_call_details,
+                                response_obj=self.model_call_details[
+                                    "complete_streaming_response"
+                                ],
+                                start_time=start_time,
+                                end_time=end_time,
+                                print_verbose=print_verbose,
+                                callback_func=callback,
+                            )
+                    else:
+                        await customLogger.async_log_event(
+                            kwargs=self.model_call_details,
+                            response_obj=result,
+                            start_time=start_time,
+                            end_time=end_time,
+                            print_verbose=print_verbose,
+                            callback_func=callback,
+                        )
                 if callback == "dynamodb":
                     global dynamoLogger
                     if dynamoLogger is None:
@@ -2846,6 +2910,9 @@ def cost_per_token(
 
     if model in model_cost_ref:
         verbose_logger.debug(f"Success: model={model} in model_cost_map")
+        verbose_logger.debug(
+            f"prompt_tokens={prompt_tokens}; completion_tokens={completion_tokens}"
+        )
         if (
             model_cost_ref[model].get("input_cost_per_token", None) is not None
             and model_cost_ref[model].get("output_cost_per_token", None) is not None
@@ -2874,9 +2941,17 @@ def cost_per_token(
         )
         return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
     elif model_with_provider in model_cost_ref:
-        print_verbose(f"Looking up model={model_with_provider} in model_cost_map")
+        verbose_logger.debug(
+            f"Looking up model={model_with_provider} in model_cost_map"
+        )
+        verbose_logger.debug(
+            f"applying cost={model_cost_ref[model_with_provider]['input_cost_per_token']} for prompt_tokens={prompt_tokens}"
+        )
         prompt_tokens_cost_usd_dollar = (
             model_cost_ref[model_with_provider]["input_cost_per_token"] * prompt_tokens
+        )
+        verbose_logger.debug(
+            f"applying cost={model_cost_ref[model_with_provider]['output_cost_per_token']} for completion_tokens={completion_tokens}"
         )
         completion_tokens_cost_usd_dollar = (
             model_cost_ref[model_with_provider]["output_cost_per_token"]
@@ -2884,7 +2959,7 @@ def cost_per_token(
         )
         return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
     elif "ft:gpt-3.5-turbo" in model:
-        print_verbose(f"Cost Tracking: {model} is an OpenAI FinteTuned LLM")
+        verbose_logger.debug(f"Cost Tracking: {model} is an OpenAI FinteTuned LLM")
         # fuzzy match ft:gpt-3.5-turbo:abcd-id-cool-litellm
         prompt_tokens_cost_usd_dollar = (
             model_cost_ref["ft:gpt-3.5-turbo"]["input_cost_per_token"] * prompt_tokens
@@ -2895,17 +2970,23 @@ def cost_per_token(
         )
         return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
     elif model in litellm.azure_llms:
-        print_verbose(f"Cost Tracking: {model} is an Azure LLM")
+        verbose_logger.debug(f"Cost Tracking: {model} is an Azure LLM")
         model = litellm.azure_llms[model]
+        verbose_logger.debug(
+            f"applying cost={model_cost_ref[model]['input_cost_per_token']} for prompt_tokens={prompt_tokens}"
+        )
         prompt_tokens_cost_usd_dollar = (
             model_cost_ref[model]["input_cost_per_token"] * prompt_tokens
+        )
+        verbose_logger.debug(
+            f"applying cost={model_cost_ref[model]['output_cost_per_token']} for completion_tokens={completion_tokens}"
         )
         completion_tokens_cost_usd_dollar = (
             model_cost_ref[model]["output_cost_per_token"] * completion_tokens
         )
         return prompt_tokens_cost_usd_dollar, completion_tokens_cost_usd_dollar
     elif model in litellm.azure_embedding_models:
-        print_verbose(f"Cost Tracking: {model} is an Azure Embedding Model")
+        verbose_logger.debug(f"Cost Tracking: {model} is an Azure Embedding Model")
         model = litellm.azure_embedding_models[model]
         prompt_tokens_cost_usd_dollar = (
             model_cost_ref[model]["input_cost_per_token"] * prompt_tokens
@@ -7020,6 +7101,7 @@ class CustomStreamWrapper:
         self._hidden_params = {
             "model_id": (_model_info.get("id", None))
         }  # returned as x-litellm-model-id response header in proxy
+        self.response_id = None
 
     def __iter__(self):
         return self
@@ -7341,6 +7423,13 @@ class CustomStreamWrapper:
                 if str_line.choices[0].finish_reason:
                     is_finished = True
                     finish_reason = str_line.choices[0].finish_reason
+                    if finish_reason == "content_filter":
+                        error_message = json.dumps(
+                            str_line.choices[0].content_filter_result
+                        )
+                        raise litellm.AzureOpenAIError(
+                            status_code=400, message=error_message
+                        )
 
                 # checking for logprobs
                 if (
@@ -7351,16 +7440,6 @@ class CustomStreamWrapper:
                 else:
                     logprobs = None
 
-                if (
-                    hasattr(str_line.choices[0], "content_filter_result")
-                    and str_line.choices[0].content_filter_result is not None
-                ):
-                    error_message = json.dumps(
-                        str_line.choices[0].content_filter_result
-                    )
-                    raise litellm.AzureOpenAIError(
-                        status_code=400, message=error_message
-                    )
             return {
                 "text": text,
                 "is_finished": is_finished,
@@ -7595,6 +7674,10 @@ class CustomStreamWrapper:
 
     def chunk_creator(self, chunk):
         model_response = ModelResponse(stream=True, model=self.model)
+        if self.response_id is not None:
+            model_response.id = self.response_id
+        else:
+            self.response_id = model_response.id
         model_response._hidden_params["custom_llm_provider"] = self.custom_llm_provider
         model_response.choices = [StreamingChoices()]
         model_response.choices[0].finish_reason = None
@@ -7714,19 +7797,8 @@ class CustomStreamWrapper:
                     ]
                     self.sent_last_chunk = True
             elif self.custom_llm_provider == "sagemaker":
-                print_verbose(f"ENTERS SAGEMAKER STREAMING")
-                if len(self.completion_stream) == 0:
-                    if self.sent_last_chunk:
-                        raise StopIteration
-                    else:
-                        model_response.choices[0].finish_reason = "stop"
-                        self.sent_last_chunk = True
-                new_chunk = self.completion_stream
-                print_verbose(f"sagemaker chunk: {new_chunk}")
-                completion_obj["content"] = new_chunk
-                self.completion_stream = self.completion_stream[
-                    len(self.completion_stream) :
-                ]
+                print_verbose(f"ENTERS SAGEMAKER STREAMING for chunk {chunk}")
+                completion_obj["content"] = chunk
             elif self.custom_llm_provider == "petals":
                 if len(self.completion_stream) == 0:
                     if self.sent_last_chunk:
@@ -7845,7 +7917,7 @@ class CustomStreamWrapper:
                             completion_obj["role"] = "assistant"
                             self.sent_first_chunk = True
                         model_response.choices[0].delta = Delta(**completion_obj)
-                    print_verbose(f"model_response: {model_response}")
+                    print_verbose(f"returning model_response: {model_response}")
                     return model_response
                 else:
                     return

@@ -1384,6 +1384,7 @@ def test_completion_sagemaker():
         # Add any assertions here to check the response
         print(response)
         cost = completion_cost(completion_response=response)
+        print("calculated cost", cost)
         assert (
             cost > 0.0 and cost < 1.0
         )  # should never be > $1 for a single completion call
@@ -1392,6 +1393,36 @@ def test_completion_sagemaker():
 
 
 # test_completion_sagemaker()
+
+
+def test_completion_sagemaker_stream():
+    try:
+        litellm.set_verbose = False
+        print("testing sagemaker")
+        response = completion(
+            model="sagemaker/berri-benchmarking-Llama-2-70b-chat-hf-4",
+            messages=messages,
+            temperature=0.2,
+            max_tokens=80,
+            stream=True,
+        )
+
+        complete_streaming_response = ""
+        first_chunk_id, chunk_id = None, None
+        for i, chunk in enumerate(response):
+            print(chunk)
+            chunk_id = chunk.id
+            print(chunk_id)
+            if i == 0:
+                first_chunk_id = chunk_id
+            else:
+                assert chunk_id == first_chunk_id
+            complete_streaming_response += chunk.choices[0].delta.content or ""
+        # Add any assertions here to check the response
+        # print(response)
+        assert len(complete_streaming_response) > 0
+    except Exception as e:
+        pytest.fail(f"Error occurred: {e}")
 
 
 def test_completion_chat_sagemaker():
