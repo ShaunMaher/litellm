@@ -383,8 +383,9 @@ async def user_api_key_auth(
 
                 # Token exists, not expired now check if its in budget for the user
                 if valid_token.spend is not None and valid_token.user_id is not None:
-                    user_max_budget = user_id_information.max_budget
-                    user_current_spend = user_id_information.spend
+                    user_max_budget = getattr(user_id_information, "max_budget", None)
+                    user_current_spend = getattr(user_id_information, "spend", None)
+
                     if user_max_budget is not None and user_current_spend is not None:
                         if user_current_spend > user_max_budget:
                             raise Exception(
@@ -2393,7 +2394,7 @@ async def info_key_fn(
 
 @router.get(
     "/spend/keys",
-    tags=["Budget & Spend Tracking"],
+    tags=["budget & spend Tracking"],
     dependencies=[Depends(user_api_key_auth)],
 )
 async def spend_key_fn():
@@ -2425,8 +2426,43 @@ async def spend_key_fn():
 
 
 @router.get(
+    "/spend/users",
+    tags=["budget & spend Tracking"],
+    dependencies=[Depends(user_api_key_auth)],
+)
+async def spend_user_fn():
+    """
+    View all users created, ordered by spend
+
+    Example Request: 
+    ```
+    curl -X GET "http://0.0.0.0:8000/spend/users" \
+-H "Authorization: Bearer sk-1234"
+    ```
+    """
+    global prisma_client
+    try:
+        if prisma_client is None:
+            raise Exception(
+                f"Database not connected. Connect a database to your proxy - https://docs.litellm.ai/docs/simple_proxy#managing-auth---virtual-keys"
+            )
+
+        user_info = await prisma_client.get_data(
+            table_name="user", query_type="find_all"
+        )
+
+        return user_info
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": str(e)},
+        )
+
+
+@router.get(
     "/spend/logs",
-    tags=["Budget & Spend Tracking"],
+    tags=["budget & spend Tracking"],
     dependencies=[Depends(user_api_key_auth)],
 )
 async def view_spend_logs(

@@ -432,6 +432,11 @@ class PrismaClient:
                     }
                 )
                 return response
+            elif table_name == "user" and query_type == "find_all":
+                response = await self.db.litellm_usertable.find_many(  # type: ignore
+                    order={"spend": "desc"},
+                )
+                return response
             elif table_name == "spend":
                 verbose_proxy_logger.debug(
                     f"PrismaClient: get_data: table_name == 'spend'"
@@ -892,6 +897,10 @@ def get_logging_payload(kwargs, response_obj, start_time, end_time):
     from pydantic import Json
     import uuid
 
+    verbose_proxy_logger.debug(
+        f"SpendTable: get_logging_payload - kwargs: {kwargs}\n\n"
+    )
+
     if kwargs == None:
         kwargs = {}
     # standardize this function to be used across, s3, dynamoDB, langfuse logging
@@ -899,7 +908,6 @@ def get_logging_payload(kwargs, response_obj, start_time, end_time):
     metadata = (
         litellm_params.get("metadata", {}) or {}
     )  # if litellm_params['metadata'] == None
-    messages = kwargs.get("messages")
     optional_params = kwargs.get("optional_params", {})
     call_type = kwargs.get("call_type", "litellm.completion")
     cache_hit = kwargs.get("cache_hit", False)
@@ -925,8 +933,6 @@ def get_logging_payload(kwargs, response_obj, start_time, end_time):
         "model": kwargs.get("model", ""),
         "user": kwargs.get("user", ""),
         "modelParameters": optional_params,
-        "messages": messages,
-        "response": response_obj,
         "usage": usage,
         "metadata": metadata,
     }
