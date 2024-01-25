@@ -164,7 +164,9 @@ app.add_middleware(
 
 from typing import Dict
 
-api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+api_key_header = APIKeyHeader(
+    name="Authorization", auto_error=False, description="Bearer token"
+)
 user_api_base = None
 user_model = None
 user_debug = False
@@ -1152,6 +1154,7 @@ async def generate_key_helper_fn(
     metadata: Optional[dict] = {},
     tpm_limit: Optional[int] = None,
     rpm_limit: Optional[int] = None,
+    query_type: Literal["insert_data", "update_data"] = "insert_data",
 ):
     global prisma_client, custom_db_client
 
@@ -1194,6 +1197,12 @@ async def generate_key_helper_fn(
         duration_s = _duration_in_seconds(duration=key_budget_duration)
         key_reset_at = datetime.utcnow() + timedelta(seconds=duration_s)
 
+    if budget_duration is None:  # one-time budget
+        reset_at = None
+    else:
+        duration_s = _duration_in_seconds(duration=budget_duration)
+        reset_at = datetime.utcnow() + timedelta(seconds=duration_s)
+
     aliases_json = json.dumps(aliases)
     config_json = json.dumps(config)
     metadata_json = json.dumps(metadata)
@@ -1214,6 +1223,8 @@ async def generate_key_helper_fn(
             "max_parallel_requests": max_parallel_requests,
             "tpm_limit": tpm_limit,
             "rpm_limit": rpm_limit,
+            "budget_duration": budget_duration,
+            "budget_reset_at": reset_at,
         }
         key_data = {
             "token": token,
@@ -1235,13 +1246,18 @@ async def generate_key_helper_fn(
         if prisma_client is not None:
             ## CREATE USER (If necessary)
             verbose_proxy_logger.debug(f"prisma_client: Creating User={user_data}")
-            user_row = await prisma_client.insert_data(
-                data=user_data, table_name="user"
-            )
+            if query_type == "insert_data":
+                user_row = await prisma_client.insert_data(
+                    data=user_data, table_name="user"
+                )
+                ## use default user model list if no key-specific model list provided
+                if len(user_row.models) > 0 and len(key_data["models"]) == 0:  # type: ignore
+                    key_data["models"] = user_row.models
+            elif query_type == "update_data":
+                user_row = await prisma_client.update_data(
+                    data=user_data, table_name="user"
+                )
 
-            ## use default user model list if no key-specific model list provided
-            if len(user_row.models) > 0 and len(key_data["models"]) == 0:  # type: ignore
-                key_data["models"] = user_row.models
             ## CREATE KEY
             verbose_proxy_logger.debug(f"prisma_client: Creating Key={key_data}")
             await prisma_client.insert_data(data=key_data, table_name="key")
@@ -1549,6 +1565,25 @@ async def startup_event():
         await generate_key_helper_fn(
             duration=None, models=[], aliases={}, config={}, spend=0, token=master_key
         )
+
+    if (
+        prisma_client is not None
+        and litellm.max_budget > 0
+        and litellm.budget_duration is not None
+    ):
+        # add proxy budget to db in the user table
+        await generate_key_helper_fn(
+            user_id="litellm-proxy-budget",
+            duration=None,
+            models=[],
+            aliases={},
+            config={},
+            spend=0,
+            max_budget=litellm.max_budget,
+            budget_duration=litellm.budget_duration,
+            query_type="update_data",
+        )
+
     verbose_proxy_logger.debug(
         f"custom_db_client client {custom_db_client}. Master_key: {master_key}"
     )
@@ -2466,6 +2501,10 @@ async def spend_user_fn():
     dependencies=[Depends(user_api_key_auth)],
 )
 async def view_spend_logs(
+    api_key: Optional[str] = fastapi.Query(
+        default=None,
+        description="Get spend logs based on api key",
+    ),
     request_id: Optional[str] = fastapi.Query(
         default=None,
         description="request_id to get spend logs for specific request_id. If none passed then pass spend logs for all requests",
@@ -2485,6 +2524,12 @@ async def view_spend_logs(
     curl -X GET "http://0.0.0.0:8000/spend/logs?request_id=chatcmpl-6dcb2540-d3d7-4e49-bb27-291f863f112e" \
 -H "Authorization: Bearer sk-1234"
     ```
+
+    Example Request for specific api_key
+    ```
+    curl -X GET "http://0.0.0.0:8000/spend/logs?api_key=sk-Fn8Ej39NkBQmUagFEoUWPQ" \
+-H "Authorization: Bearer sk-1234"
+    ```
     """
     global prisma_client
     try:
@@ -2493,17 +2538,32 @@ async def view_spend_logs(
                 f"Database not connected. Connect a database to your proxy - https://docs.litellm.ai/docs/simple_proxy#managing-auth---virtual-keys"
             )
         spend_logs = []
-        if request_id is not None:
+        if api_key is not None and isinstance(api_key, str):
+            if api_key.startswith("sk-"):
+                hashed_token = prisma_client.hash_token(token=api_key)
+            else:
+                hashed_token = api_key
+            spend_log = await prisma_client.get_data(
+                table_name="spend",
+                query_type="find_all",
+                key_val={"key": "api_key", "value": hashed_token},
+            )
+            if isinstance(spend_log, list):
+                return spend_log
+            else:
+                return [spend_log]
+        elif request_id is not None:
             spend_log = await prisma_client.get_data(
                 table_name="spend",
                 query_type="find_unique",
-                request_id=request_id,
+                key_val={"key": "request_id", "value": request_id},
             )
             return [spend_log]
         else:
             spend_logs = await prisma_client.get_data(
                 table_name="spend", query_type="find_all"
             )
+
             return spend_logs
 
         return None
