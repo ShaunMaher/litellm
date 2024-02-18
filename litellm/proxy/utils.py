@@ -128,19 +128,18 @@ class ProxyLogging:
         except Exception as e:
             raise e
 
-    async def success_handler(
-        self,
-        user_api_key_dict: UserAPIKeyAuth,
-        response: Any,
-        call_type: Literal["completion", "embeddings"],
-        start_time,
-        end_time,
-    ):
+    async def during_call_hook(self, data: dict):
         """
-        Log successful API calls / db read/writes
+        Runs the CustomLogger's async_moderation_hook()
         """
-
-        pass
+        for callback in litellm.callbacks:
+            new_data = copy.deepcopy(data)
+            try:
+                if isinstance(callback, CustomLogger):
+                    await callback.async_moderation_hook(data=new_data)
+            except Exception as e:
+                raise e
+        return data
 
     async def response_taking_too_long(
         self,
@@ -511,8 +510,9 @@ class PrismaClient:
         token: Optional[Union[str, list]] = None,
         user_id: Optional[str] = None,
         user_id_list: Optional[list] = None,
+        team_id: Optional[str] = None,
         key_val: Optional[dict] = None,
-        table_name: Optional[Literal["user", "key", "config", "spend"]] = None,
+        table_name: Optional[Literal["user", "key", "config", "spend", "team"]] = None,
         query_type: Literal["find_unique", "find_all"] = "find_unique",
         expires: Optional[datetime] = None,
         reset_at: Optional[datetime] = None,
@@ -542,6 +542,14 @@ class PrismaClient:
                 elif query_type == "find_all" and user_id is not None:
                     response = await self.db.litellm_verificationtoken.find_many(
                         where={"user_id": user_id}
+                    )
+                    if response is not None and len(response) > 0:
+                        for r in response:
+                            if isinstance(r.expires, datetime):
+                                r.expires = r.expires.isoformat()
+                elif query_type == "find_all" and team_id is not None:
+                    response = await self.db.litellm_verificationtoken.find_many(
+                        where={"team_id": team_id}
                     )
                     if response is not None and len(response) > 0:
                         for r in response:
@@ -594,7 +602,7 @@ class PrismaClient:
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Authentication Error: invalid user key - token does not exist",
                     )
-            elif user_id is not None or (
+            elif (user_id is not None and table_name is None) or (
                 table_name is not None and table_name == "user"
             ):
                 if query_type == "find_unique":
@@ -659,7 +667,16 @@ class PrismaClient:
                         order={"startTime": "desc"},
                     )
                     return response
-
+            elif table_name == "team":
+                if query_type == "find_unique":
+                    response = await self.db.litellm_teamtable.find_unique(
+                        where={"team_id": team_id}  # type: ignore
+                    )
+                elif query_type == "find_all" and user_id is not None:
+                    response = await self.db.litellm_teamtable.find_many(
+                        where={"members": {"has": user_id}}
+                    )
+                return response
         except Exception as e:
             print_verbose(f"LiteLLM Prisma Client Exception: {e}")
             import traceback
@@ -679,7 +696,7 @@ class PrismaClient:
         on_backoff=on_backoff,  # specifying the function to call on backoff
     )
     async def insert_data(
-        self, data: dict, table_name: Literal["user", "key", "config", "spend"]
+        self, data: dict, table_name: Literal["user", "key", "config", "spend", "team"]
     ):
         """
         Add a key to the database. If it already exists, do nothing.
@@ -715,6 +732,17 @@ class PrismaClient:
                 )
                 verbose_proxy_logger.info(f"Data Inserted into User Table")
                 return new_user_row
+            elif table_name == "team":
+                db_data = self.jsonify_object(data=data)
+                new_team_row = await self.db.litellm_teamtable.upsert(
+                    where={"team_id": data["team_id"]},
+                    data={
+                        "create": {**db_data},  # type: ignore
+                        "update": {},  # don't do anything if it already exists
+                    },
+                )
+                verbose_proxy_logger.info(f"Data Inserted into Team Table")
+                return new_team_row
             elif table_name == "config":
                 """
                 For each param,
@@ -772,8 +800,9 @@ class PrismaClient:
         data: dict = {},
         data_list: Optional[List] = None,
         user_id: Optional[str] = None,
+        team_id: Optional[str] = None,
         query_type: Literal["update", "update_many"] = "update",
-        table_name: Optional[Literal["user", "key", "config", "spend"]] = None,
+        table_name: Optional[Literal["user", "key", "config", "spend", "team"]] = None,
         update_key_values: Optional[dict] = None,
     ):
         """
@@ -824,6 +853,35 @@ class PrismaClient:
                     + "\033[0m"
                 )
                 return {"user_id": user_id, "data": db_data}
+            elif (
+                team_id is not None
+                or (table_name is not None and table_name == "team")
+                and query_type == "update"
+            ):
+                """
+                If data['spend'] + data['user'], update the user table with spend info as well
+                """
+                if team_id is None:
+                    team_id = db_data["team_id"]
+                if update_key_values is None:
+                    update_key_values = db_data
+                if "team_id" not in db_data and team_id is not None:
+                    db_data["team_id"] = team_id
+                update_team_row = await self.db.litellm_teamtable.upsert(
+                    where={"team_id": team_id},  # type: ignore
+                    data={
+                        "create": {**db_data},  # type: ignore
+                        "update": {
+                            **update_key_values  # type: ignore
+                        },  # just update user-specified values, if it already exists
+                    },
+                )
+                verbose_proxy_logger.info(
+                    "\033[91m"
+                    + f"DB Team Table - update succeeded {update_team_row}"
+                    + "\033[0m"
+                )
+                return {"team_id": team_id, "data": db_data}
             elif (
                 table_name is not None
                 and table_name == "key"
@@ -1204,6 +1262,7 @@ def get_logging_payload(kwargs, response_obj, start_time, end_time):
         "total_tokens": usage.get("total_tokens", 0),
         "prompt_tokens": usage.get("prompt_tokens", 0),
         "completion_tokens": usage.get("completion_tokens", 0),
+        "request_tags": metadata.get("tags", []),
     }
 
     verbose_proxy_logger.debug(f"SpendTable: created payload - payload: {payload}\n\n")
@@ -1313,19 +1372,22 @@ async def _read_request_body(request):
     """
     import ast, json
 
-    request_data = {}
-    if request is None:
-        return request_data
-    body = await request.body()
-
-    if body == b"" or body is None:
-        return request_data
-    body_str = body.decode()
     try:
-        request_data = ast.literal_eval(body_str)
+        request_data = {}
+        if request is None:
+            return request_data
+        body = await request.body()
+
+        if body == b"" or body is None:
+            return request_data
+        body_str = body.decode()
+        try:
+            request_data = ast.literal_eval(body_str)
+        except:
+            request_data = json.loads(body_str)
+        return request_data
     except:
-        request_data = json.loads(body_str)
-    return request_data
+        return {}
 
 
 def _is_valid_team_configs(team_id=None, team_config=None, request_data=None):
@@ -1340,6 +1402,22 @@ def _is_valid_team_configs(team_id=None, team_config=None, request_data=None):
                 f"Invalid model for team {team_id}: {model_in_request}.  Valid models for team are: {valid_models}\n"
             )
     return
+
+
+def _is_user_proxy_admin(user_id_information=None):
+    if (
+        user_id_information == None
+        or len(user_id_information) == 0
+        or user_id_information[0] == None
+    ):
+        return False
+    _user = user_id_information[0]
+    if (
+        _user.get("user_role", None) is not None
+        and _user.get("user_role") == "proxy_admin"
+    ):
+        return True
+    return False
 
 
 # LiteLLM Admin UI - Non SSO Login

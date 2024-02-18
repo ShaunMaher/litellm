@@ -282,7 +282,14 @@ class DynamoDBWrapper(CustomDB):
                 new_response = {}
                 for k, v in response.items():  # handle json string
                     if (
-                        (k == "aliases" or k == "config" or k == "metadata")
+                        (
+                            k == "aliases"
+                            or k == "config"
+                            or k == "metadata"
+                            or k == "permissions"
+                            or k == "model_spend"
+                            or k == "model_max_budget"
+                        )
                         and v is not None
                         and isinstance(v, str)
                     ):

@@ -16,23 +16,23 @@ input_callback: List[Union[str, Callable]] = []
 success_callback: List[Union[str, Callable]] = []
 failure_callback: List[Union[str, Callable]] = []
 callbacks: List[Callable] = []
-_async_input_callback: List[
-    Callable
-] = []  # internal variable - async custom callbacks are routed here.
-_async_success_callback: List[
-    Union[str, Callable]
-] = []  # internal variable - async custom callbacks are routed here.
-_async_failure_callback: List[
-    Callable
-] = []  # internal variable - async custom callbacks are routed here.
+_async_input_callback: List[Callable] = (
+    []
+)  # internal variable - async custom callbacks are routed here.
+_async_success_callback: List[Union[str, Callable]] = (
+    []
+)  # internal variable - async custom callbacks are routed here.
+_async_failure_callback: List[Callable] = (
+    []
+)  # internal variable - async custom callbacks are routed here.
 pre_call_rules: List[Callable] = []
 post_call_rules: List[Callable] = []
-email: Optional[
-    str
-] = None  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
-token: Optional[
-    str
-] = None  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
+email: Optional[str] = (
+    None  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
+)
+token: Optional[str] = (
+    None  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
+)
 telemetry = True
 max_tokens = 256  # OpenAI Defaults
 drop_params = False
@@ -55,18 +55,25 @@ baseten_key: Optional[str] = None
 aleph_alpha_key: Optional[str] = None
 nlp_cloud_key: Optional[str] = None
 use_client: bool = False
+llamaguard_model_name: Optional[str] = None
+google_moderation_confidence_threshold: Optional[float] = None
+llamaguard_unsafe_content_categories: Optional[str] = None
 logging: bool = True
-caching: bool = False  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
-caching_with_models: bool = False  # # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
-cache: Optional[
-    Cache
-] = None  # cache object <- use this - https://docs.litellm.ai/docs/caching
+caching: bool = (
+    False  # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
+)
+caching_with_models: bool = (
+    False  # # Not used anymore, will be removed in next MAJOR release - https://github.com/BerriAI/litellm/discussions/648
+)
+cache: Optional[Cache] = (
+    None  # cache object <- use this - https://docs.litellm.ai/docs/caching
+)
 model_alias_map: Dict[str, str] = {}
 model_group_alias_map: Dict[str, str] = {}
 max_budget: float = 0.0  # set the max budget across all providers
-budget_duration: Optional[
-    str
-] = None  # proxy only - resets budget after fixed duration. You can set duration as seconds ("30s"), minutes ("30m"), hours ("30h"), days ("30d").
+budget_duration: Optional[str] = (
+    None  # proxy only - resets budget after fixed duration. You can set duration as seconds ("30s"), minutes ("30m"), hours ("30h"), days ("30d").
+)
 _openai_finish_reasons = ["stop", "length", "function_call", "content_filter", "null"]
 _openai_completion_params = [
     "functions",
@@ -138,14 +145,19 @@ _litellm_completion_params = [
 ]
 _current_cost = 0  # private variable, used if max budget is set
 error_logs: Dict = {}
-add_function_to_prompt: bool = False  # if function calling not supported by api, append function call details to system prompt
+add_function_to_prompt: bool = (
+    False  # if function calling not supported by api, append function call details to system prompt
+)
 client_session: Optional[httpx.Client] = None
 aclient_session: Optional[httpx.AsyncClient] = None
 model_fallbacks: Optional[List] = None  # Deprecated for 'litellm.fallbacks'
-model_cost_map_url: str = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+model_cost_map_url: str = (
+    "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+)
 suppress_debug_info = False
 dynamodb_table_name: Optional[str] = None
 s3_callback_params: Optional[Dict] = None
+generic_logger_headers: Optional[Dict] = None
 default_key_generate_params: Optional[Dict] = None
 upperbound_key_generate_params: Optional[Dict] = None
 default_team_settings: Optional[List] = None
@@ -156,13 +168,13 @@ num_retries: Optional[int] = None  # per model endpoint
 fallbacks: Optional[List] = None
 context_window_fallbacks: Optional[List] = None
 allowed_fails: int = 0
-num_retries_per_request: Optional[
-    int
-] = None  # for the request overall (incl. fallbacks + model retries)
+num_retries_per_request: Optional[int] = (
+    None  # for the request overall (incl. fallbacks + model retries)
+)
 ####### SECRET MANAGERS #####################
-secret_manager_client: Optional[
-    Any
-] = None  # list of instantiated key management clients - e.g. azure kv, infisical, etc.
+secret_manager_client: Optional[Any] = (
+    None  # list of instantiated key management clients - e.g. azure kv, infisical, etc.
+)
 _google_kms_resource_name: Optional[str] = None
 _key_management_system: Optional[KeyManagementSystem] = None
 #### PII MASKING ####

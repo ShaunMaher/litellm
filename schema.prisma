@@ -1,11 +1,31 @@
 datasource client {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 generator client {
   provider = "prisma-client-py"
+}
+
+// Assign prod keys to groups, not individuals 
+model LiteLLM_TeamTable {
+		team_id    String @unique
+    team_alias  String? 
+    admins String[]
+    members String[]
+    metadata  Json  @default("{}")
+    max_budget Float?
+    spend      Float    @default(0.0)
+    models     String[]
+    max_parallel_requests Int?
+    tpm_limit     BigInt?
+    rpm_limit     BigInt?
+    budget_duration String? 
+    budget_reset_at DateTime?
+    created_at    DateTime               @default(now()) @map("created_at")
+    updated_at    DateTime               @default(now()) @updatedAt @map("updated_at")
+    model_spend      Json @default("{}")
+    model_max_budget Json @default("{}")
 }
 
 // Track spend, rate limit, budget Users
@@ -23,6 +43,8 @@ model LiteLLM_UserTable {
     budget_duration String? 
     budget_reset_at DateTime?
     allowed_cache_controls String[] @default([])
+    model_spend      Json @default("{}")
+    model_max_budget Json @default("{}")
 }
 
 // Generate Tokens for Proxy
@@ -37,6 +59,7 @@ model LiteLLM_VerificationToken {
     config     Json  @default("{}")
     user_id    String?
     team_id    String?
+    permissions Json @default("{}")
     max_parallel_requests Int?
     metadata   Json  @default("{}")
     tpm_limit     BigInt?
@@ -45,6 +68,8 @@ model LiteLLM_VerificationToken {
     budget_duration String? 
     budget_reset_at DateTime?
     allowed_cache_controls String[] @default([])
+    model_spend      Json @default("{}")
+    model_max_budget Json @default("{}")
 }
 
 // store proxy config.yaml
@@ -69,4 +94,5 @@ model LiteLLM_SpendLogs {
   metadata            Json     @default("{}")
   cache_hit           String   @default("")
   cache_key           String   @default("")
+  request_tags        Json     @default("[]")
 }

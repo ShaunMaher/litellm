@@ -7,6 +7,10 @@ You can find the Dockerfile to build litellm proxy [here](https://github.com/Ber
 
 ## Quick Start
 
+<Tabs>
+
+<TabItem value="basic" label="Basic">
+
 See the latest available ghcr docker image here:
 https://github.com/berriai/litellm/pkgs/container/litellm
 
@@ -17,6 +21,12 @@ docker pull ghcr.io/berriai/litellm:main-latest
 ```shell
 docker run ghcr.io/berriai/litellm:main-latest
 ```
+
+</TabItem>
+
+
+
+<TabItem value="cli" label="With CLI Args">
 
 ### Run with LiteLLM CLI args
 
@@ -31,6 +41,34 @@ Here's how you can run the docker image and start litellm on port 8002 with `num
 ```shell
 docker run ghcr.io/berriai/litellm:main-latest --port 8002 --num_workers 8
 ```
+
+</TabItem>
+
+<TabItem value="base-image" label="use litellm as a base image">
+
+```shell
+# Use the provided base image
+FROM ghcr.io/berriai/litellm:main-latest
+
+# Set the working directory to /app
+WORKDIR /app
+
+# Copy the configuration file into the container at /app
+COPY config.yaml .
+
+# Make sure your entrypoint.sh is executable
+RUN chmod +x entrypoint.sh
+
+# Expose the necessary port
+EXPOSE 4000/tcp
+
+# Override the CMD instruction with your desired command and arguments
+CMD ["--port", "4000", "--config", "config.yaml", "--detailed_debug", "--run_gunicorn"]
+```
+
+</TabItem>
+
+</Tabs>
 
 ## Deploy with Database
 
@@ -114,9 +152,53 @@ kubectl port-forward service/litellm-service 4000:4000
 Your OpenAI proxy server is now running on `http://0.0.0.0:4000`.
 
 </TabItem>
+<TabItem value="helm-deploy" label="Helm">
+
+### Step 1. Clone the repository
+
+```bash
+git clone https://github.com/BerriAI/litellm.git
+```
+
+### Step 2. Deploy with Helm
+
+```bash
+helm install \
+  --set masterkey=SuPeRsEcReT \
+  mydeploy \
+  deploy/charts/litellm
+```
+
+### Step 3. Expose the service to localhost
+
+```bash
+kubectl \
+  port-forward \
+  service/mydeploy-litellm \
+  8000:8000
+```
+
+Your OpenAI proxy server is now running on `http://127.0.0.1:8000`.
+
+</TabItem>
 </Tabs>
 
-## Setting SSL Certification 
+## Advanced Deployment Settings
+
+### Customization of the server root path
+
+:::info
+
+In a Kubernetes deployment, it's possible to utilize a shared DNS to host multiple applications by modifying the virtual service
+
+:::
+
+Customize the root path to eliminate the need for employing multiple DNS configurations during deployment.
+
+👉 Set `SERVER_ROOT_PATH` in your .env and this will be set as your server root path
+
+
+### Setting SSL Certification 
 
 Use this, If you need to set ssl certificates for your on prem litellm proxy
 
