@@ -173,8 +173,6 @@ ui:
     pullPolicy: IfNotPresent
     # Overrides the image tag whose default is the chart appVersion.
     # tag: "main-latest"
-    # TODO: Switch to BerryAI repo and tags if/when they provide a ui image
-    # https://github.com/BerriAI/litellm/pull/1505
     tag: ""
   
   service:
