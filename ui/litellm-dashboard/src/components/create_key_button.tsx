@@ -70,14 +70,15 @@ const CreateKey: React.FC<CreateKeyProps> = ({
         onOk={handleOk}
         onCancel={handleCancel}
       >
-        <Form form={form} onFinish={handleCreate} labelCol={{ span: 6 }} wrapperCol={{ span: 16 }} labelAlign="left">
+        <Form form={form} onFinish={handleCreate} labelCol={{ span: 8 }} wrapperCol={{ span: 16 }} labelAlign="left">
         {userRole === 'App Owner' || userRole === 'Admin' ? (
             <>
+            
             <Form.Item
             label="Key Name"
-            name="key_alias"
+            name="key_alias"          
           >
-            <Input />
+            <Input />         
             </Form.Item>
             <Form.Item
               label="Team ID"
@@ -101,13 +102,23 @@ const CreateKey: React.FC<CreateKeyProps> = ({
               ))}
             </Select>
           </Form.Item>
-            
-
             <Form.Item
               label="Max Budget (USD)"
               name="max_budget"
             >
               <InputNumber step={0.01} precision={2} width={200}/>
+            </Form.Item>
+            <Form.Item
+              label="Tokens per minute Limit (TPM)"
+              name="tpm_limit"
+            >
+              <InputNumber step={1} width={400}/>
+            </Form.Item>
+            <Form.Item
+              label="Requests per minute Limit (RPM)"
+              name="rpm_limit"
+            >
+              <InputNumber step={1} width={400}/>
             </Form.Item>
             <Form.Item
               label="Duration (eg: 30s, 30h, 30d)"

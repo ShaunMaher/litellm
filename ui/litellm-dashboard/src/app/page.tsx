@@ -4,13 +4,14 @@ import { useSearchParams } from "next/navigation";
 import Navbar from "../components/navbar";
 import UserDashboard from "../components/user_dashboard";
 import ModelDashboard from "@/components/model_dashboard";
+import ViewUserDashboard from "@/components/view_users";
 import ChatUI from "@/components/chat_ui";
 import Sidebar from "../components/leftnav";
 import Usage from "../components/usage";
 import { jwtDecode } from "jwt-decode";
 
 const CreateKeyPage = () => {
-  const [userRole, setUserRole] = useState<null | string>(null);
+  const [userRole, setUserRole] = useState('');
   const [userEmail, setUserEmail] = useState<null | string>(null);
   const searchParams = useSearchParams();
 
@@ -73,7 +74,7 @@ const CreateKeyPage = () => {
       <div className="flex flex-col min-h-screen">
         <Navbar userID={userID} userRole={userRole} userEmail={userEmail} />
         <div className="flex flex-1 overflow-auto">
-          <Sidebar setPage={setPage} />
+          <Sidebar setPage={setPage} userRole={userRole}/>
           {page == "api-keys" ? (
             <UserDashboard
               userID={userID}
@@ -91,6 +92,14 @@ const CreateKeyPage = () => {
             />
           ) : page == "llm-playground" ? (
             <ChatUI
+              userID={userID}
+              userRole={userRole}
+              token={token}
+              accessToken={accessToken}
+            />
+          )
+          : page == "users" ? (
+            <ViewUserDashboard
               userID={userID}
               userRole={userRole}
               token={token}

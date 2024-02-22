@@ -401,6 +401,27 @@ class ProxyLogging:
                 raise e
         return new_response
 
+    async def post_call_streaming_hook(
+        self,
+        response: str,
+        user_api_key_dict: UserAPIKeyAuth,
+    ):
+        """
+        - Check outgoing streaming response uptil that point
+        - Run through moderation check
+        - Reject request if it fails moderation check
+        """
+        new_response = copy.deepcopy(response)
+        for callback in litellm.callbacks:
+            try:
+                if isinstance(callback, CustomLogger):
+                    await callback.async_post_call_streaming_hook(
+                        user_api_key_dict=user_api_key_dict, response=new_response
+                    )
+            except Exception as e:
+                raise e
+        return new_response
+
 
 ### DB CONNECTOR ###
 # Define the retry decorator with backoff strategy
@@ -511,8 +532,11 @@ class PrismaClient:
         user_id: Optional[str] = None,
         user_id_list: Optional[list] = None,
         team_id: Optional[str] = None,
+        team_id_list: Optional[list] = None,
         key_val: Optional[dict] = None,
-        table_name: Optional[Literal["user", "key", "config", "spend", "team"]] = None,
+        table_name: Optional[
+            Literal["user", "key", "config", "spend", "team", "user_notification"]
+        ] = None,
         query_type: Literal["find_unique", "find_all"] = "find_unique",
         expires: Optional[datetime] = None,
         reset_at: Optional[datetime] = None,
@@ -618,13 +642,12 @@ class PrismaClient:
                         }
                     )
                 elif query_type == "find_all" and user_id_list is not None:
-                    user_id_values = str(tuple(user_id_list))
+                    user_id_values = ", ".join(f"'{item}'" for item in user_id_list)
                     sql_query = f"""
                     SELECT *
                     FROM "LiteLLM_UserTable"
-                    WHERE "user_id" IN {user_id_values}
+                    WHERE "user_id" IN ({user_id_values})
                     """
-
                     # Execute the raw query
                     # The asterisk before `user_id_list` unpacks the list into separate arguments
                     response = await self.db.query_raw(sql_query)
@@ -674,8 +697,22 @@ class PrismaClient:
                     )
                 elif query_type == "find_all" and user_id is not None:
                     response = await self.db.litellm_teamtable.find_many(
-                        where={"members": {"has": user_id}}
+                        where={
+                            "members": {"has": user_id},
+                        },
                     )
+                elif query_type == "find_all" and team_id_list is not None:
+                    response = await self.db.litellm_teamtable.find_many(
+                        where={"team_id": {"in": team_id_list}}
+                    )
+                return response
+            elif table_name == "user_notification":
+                if query_type == "find_unique":
+                    response = await self.db.litellm_usernotifications.find_unique(  # type: ignore
+                        where={"user_id": user_id}  # type: ignore
+                    )
+                elif query_type == "find_all":
+                    response = await self.db.litellm_usernotifications.find_many()  # type: ignore
                 return response
         except Exception as e:
             print_verbose(f"LiteLLM Prisma Client Exception: {e}")
@@ -696,7 +733,11 @@ class PrismaClient:
         on_backoff=on_backoff,  # specifying the function to call on backoff
     )
     async def insert_data(
-        self, data: dict, table_name: Literal["user", "key", "config", "spend", "team"]
+        self,
+        data: dict,
+        table_name: Literal[
+            "user", "key", "config", "spend", "team", "user_notification"
+        ],
     ):
         """
         Add a key to the database. If it already exists, do nothing.
@@ -734,6 +775,12 @@ class PrismaClient:
                 return new_user_row
             elif table_name == "team":
                 db_data = self.jsonify_object(data=data)
+                if db_data.get("members_with_roles", None) is not None and isinstance(
+                    db_data["members_with_roles"], list
+                ):
+                    db_data["members_with_roles"] = json.dumps(
+                        db_data["members_with_roles"]
+                    )
                 new_team_row = await self.db.litellm_teamtable.upsert(
                     where={"team_id": data["team_id"]},
                     data={
@@ -778,6 +825,19 @@ class PrismaClient:
                 )
                 verbose_proxy_logger.info(f"Data Inserted into Spend Table")
                 return new_spend_row
+            elif table_name == "user_notification":
+                db_data = self.jsonify_object(data=data)
+                new_user_notification_row = (
+                    await self.db.litellm_usernotifications.upsert(  # type: ignore
+                        where={"request_id": data["request_id"]},
+                        data={
+                            "create": {**db_data},  # type: ignore
+                            "update": {},  # don't do anything if it already exists
+                        },
+                    )
+                )
+                verbose_proxy_logger.info(f"Data Inserted into Model Request Table")
+                return new_user_notification_row
 
         except Exception as e:
             print_verbose(f"LiteLLM Prisma Client Exception: {e}")
@@ -867,6 +927,19 @@ class PrismaClient:
                     update_key_values = db_data
                 if "team_id" not in db_data and team_id is not None:
                     db_data["team_id"] = team_id
+                if "members_with_roles" in db_data and isinstance(
+                    db_data["members_with_roles"], list
+                ):
+                    db_data["members_with_roles"] = json.dumps(
+                        db_data["members_with_roles"]
+                    )
+                if "members_with_roles" in update_key_values and isinstance(
+                    update_key_values["members_with_roles"], list
+                ):
+                    update_key_values["members_with_roles"] = json.dumps(
+                        update_key_values["members_with_roles"]
+                    )
+
                 update_team_row = await self.db.litellm_teamtable.upsert(
                     where={"team_id": team_id},  # type: ignore
                     data={
@@ -881,7 +954,7 @@ class PrismaClient:
                     + f"DB Team Table - update succeeded {update_team_row}"
                     + "\033[0m"
                 )
-                return {"team_id": team_id, "data": db_data}
+                return {"team_id": team_id, "data": update_team_row}
             elif (
                 table_name is not None
                 and table_name == "key"
@@ -953,22 +1026,45 @@ class PrismaClient:
         max_time=10,  # maximum total time to retry for
         on_backoff=on_backoff,  # specifying the function to call on backoff
     )
-    async def delete_data(self, tokens: List):
+    async def delete_data(
+        self,
+        tokens: Optional[List] = None,
+        team_id_list: Optional[List] = None,
+        table_name: Optional[Literal["user", "key", "config", "spend", "team"]] = None,
+    ):
         """
         Allow user to delete a key(s)
         """
         try:
-            hashed_tokens = []
-            for token in tokens:
-                if isinstance(token, str) and token.startswith("sk-"):
-                    hashed_token = self.hash_token(token=token)
-                else:
-                    hashed_token = token
-                hashed_tokens.append(hashed_token)
-            await self.db.litellm_verificationtoken.delete_many(
-                where={"token": {"in": hashed_tokens}}
-            )
-            return {"deleted_keys": tokens}
+            if tokens is not None and isinstance(tokens, List):
+                hashed_tokens = []
+                for token in tokens:
+                    if isinstance(token, str) and token.startswith("sk-"):
+                        hashed_token = self.hash_token(token=token)
+                    else:
+                        hashed_token = token
+                    hashed_tokens.append(hashed_token)
+                await self.db.litellm_verificationtoken.delete_many(
+                    where={"token": {"in": hashed_tokens}}
+                )
+                return {"deleted_keys": tokens}
+            elif (
+                table_name == "team"
+                and team_id_list is not None
+                and isinstance(team_id_list, List)
+            ):
+                await self.db.litellm_teamtable.delete_many(
+                    where={"team_id": {"in": team_id_list}}
+                )
+                return {"deleted_teams": team_id_list}
+            elif (
+                table_name == "key"
+                and team_id_list is not None
+                and isinstance(team_id_list, List)
+            ):
+                await self.db.litellm_verificationtoken.delete_many(
+                    where={"team_id": {"in": team_id_list}}
+                )
         except Exception as e:
             asyncio.create_task(
                 self.proxy_logging_obj.failure_handler(original_exception=e)
@@ -1417,6 +1513,20 @@ def _is_user_proxy_admin(user_id_information=None):
         and _user.get("user_role") == "proxy_admin"
     ):
         return True
+
+    # if user_id_information contains litellm-proxy-budget
+    # get first user_id that is not litellm-proxy-budget
+    for user in user_id_information:
+        if user.get("user_id") != "litellm-proxy-budget":
+            _user = user
+            break
+
+    if (
+        _user.get("user_role", None) is not None
+        and _user.get("user_role") == "proxy_admin"
+    ):
+        return True
+
     return False
 
 

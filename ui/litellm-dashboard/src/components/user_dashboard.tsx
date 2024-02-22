@@ -24,7 +24,7 @@ interface UserDashboardProps {
   userID: string | null;
   userRole: string | null;
   userEmail: string | null;
-  setUserRole: React.Dispatch<React.SetStateAction<string | null>>;
+  setUserRole: React.Dispatch<React.SetStateAction<string>>;
   setUserEmail: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
@@ -106,12 +106,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
       }
     }
     if (userID && accessToken && userRole && !data) {
-      const cachedData = sessionStorage.getItem("userData" + userID);
-      const cachedSpendData = sessionStorage.getItem("userSpendData" + userID);
       const cachedUserModels = sessionStorage.getItem("userModels" + userID);
-      if (cachedData && cachedSpendData && cachedUserModels) {
-        setData(JSON.parse(cachedData));
-        setUserSpendData(JSON.parse(cachedSpendData));
+      if (cachedUserModels) {
         setUserModels(JSON.parse(cachedUserModels));
   
       } else {
@@ -129,7 +125,7 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
             const model_info = await modelInfoCall(accessToken, userID, userRole);
             console.log("model_info:", model_info);
             // loop through model_info["data"] and create an array of element.model_name
-            let available_model_names = model_info["data"].map((element: { model_name: string; }) => element.model_name);
+            let available_model_names = model_info["data"].filter((element: { model_name: string; user_access: boolean }) => element.user_access === true).map((element: { model_name: string; }) => element.model_name);
             console.log("available_model_names:", available_model_names);
             setUserModels(available_model_names);
 
